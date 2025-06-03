@@ -314,11 +314,11 @@ app.registerExtension({
 							analyser.fftSize = 2048;
 							dataArray = new Uint8Array(analyser.frequencyBinCount);
 							// Get the range values from widgets (assumed to be in Hz)
-							const lowRangeWidget = this.widgets.find(w => w.name === "low_range_hz");
-							if (lowRangeWidget) startRangeHz = lowRangeWidget.value;
-				
-							const midRangeWidget = this.widgets.find(w => w.name === "mid_range_hz");
-							if (midRangeWidget) endRangeHz = midRangeWidget.value;
+                                                        const startRangeWidget = this.widgets.find(w => w.name === "start_range_hz");
+                                                        if (startRangeWidget) startRangeHz = startRangeWidget.value;
+
+                                                        const endRangeWidget = this.widgets.find(w => w.name === "end_range_hz");
+                                                        if (endRangeWidget) endRangeHz = endRangeWidget.value;
 						}
 						
 						navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
