@@ -4,11 +4,17 @@ import comfy.model_management
 import math
 import comfy.utils
 ########################################################################################################################
-# Flux Empty Latent Image
+    # Flux Empty Latent Image (SD3-compatible)
 class FluxEmptyLatentImage:
-    TITLE = "Flux Empty Latent Image (With Resolutions)"
-    CATEGORY = "latent"
-    # Predefined resolutions from your Flux Resolutions node
+    DESCRIPTION = """
+    - Provides a wide selection of resolutions for easy selection.
+
+    - Meant to save time from manually entering
+    the resolution in the "Empty Latent Image" node.
+    """
+    TITLE = "Flux Empty Latent Image"
+    CATEGORY = "KJNodes/Latent"
+
     RESOLUTIONS = {
         "High Res (1:1) Square 1408x1408": (1408, 1408),
         "High Res (3:2) Landscape 1728x1152": (1728, 1152),
@@ -28,21 +34,17 @@ class FluxEmptyLatentImage:
     }
 
     def __init__(self):
-        # Get the intermediate device (usually a GPU device) from ComfyUI's model management
         self.device = comfy.model_management.intermediate_device()
 
     @classmethod
     def INPUT_TYPES(cls) -> dict:
         return {
             "required": {
-                # Dropdown to select one of the predefined resolutions, defaulting to Standard Res Square
                 "resolution": (
                     list(cls.RESOLUTIONS.keys()),
                     {"default": "Standard Res (1:1) Square 1024x1024"}
                 ),
-                # Toggle for vertical mode (swaps width and height)
                 "vertical": ("BOOLEAN",),
-                # Number of latent images to create in the batch
                 "batch_size": (
                     "INT",
                     {
@@ -60,15 +62,12 @@ class FluxEmptyLatentImage:
     FUNCTION = "generate"
 
     def generate(self, resolution, vertical, batch_size=1) -> tuple:
-        # Look up the chosen resolution (width, height)
         width, height = self.RESOLUTIONS[resolution]
-        # Swap width and height if vertical mode is enabled
         if vertical:
             width, height = height, width
 
-        # Create the empty latent tensor.
-        # Note: Typically the latent space has 4 channels and each spatial dimension is 1/8th of the image.
-        latent = torch.zeros([batch_size, 4, height // 8, width // 8], device=self.device)
+        # Use 16 channels for SD3 compatibility (instead of 4)
+        latent = torch.zeros([batch_size, 16, height // 8, width // 8], device=self.device)
         return ({"samples": latent},)
 
 ########################################################################################################################
@@ -297,6 +296,82 @@ class ImageScaleToTotalPixelsSafe:
         return (scaled,)
 
 ########################################################################################################################
+# Flux Image Scale To Total Pixels (Flux Safe)
+class FluxImageScaleToTotalPixelsSafe:
+    DESCRIPTION = """
+    - Scales to target megapixel count, preserving aspect ratio.
+
+    - If image matches Flux-safe resolutions (e.g. those used in
+    the Flux Empty Latent Image node), scaling is skipped. 
+
+    - Meant for image-to-image or inpainting workflows to auto-scale 
+    arbitrary images, but skip images already matching Flux resolutions.
+    """
+    upscale_methods = ["nearest-exact", "bilinear", "area", "bicubic", "lanczos"]
+
+    # Flux-safe resolutions (width, height) – stored in one orientation only
+    FLUX_SAFE_RESOLUTIONS = [
+        (1408, 1408),
+        (1728, 1152),
+        (1664, 1216),
+        (1920, 1088),
+        (2176, 960),
+        (1024, 1024),  
+        (1216, 832),
+        (1152, 896),
+        (1344, 768),
+        (1536, 640),
+        (320, 320),
+        (384, 256),
+        (448, 320),
+        (448, 256),
+        (576, 256),
+    ]
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "upscale_method": (cls.upscale_methods, ),
+                "total_megapixels": (
+                    "FLOAT",
+                    {
+                        "default": 1.0,
+                        "min": 0.01,
+                        "max": 128.0,
+                        "step": 0.01,
+                        "tooltip": "Set the total megapixels (e.g., 1.0 = 1 MP)",
+                    },
+                ),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "upscale"
+    CATEGORY = "KJNodes/Upscaling"  # Keep same category for consistency
+
+    def upscale(self, image, upscale_method, total_megapixels):
+        b, h, w, c = image.shape
+
+        # Skip scaling if image matches any Flux-safe resolution
+        if (w, h) in self.FLUX_SAFE_RESOLUTIONS or (h, w) in self.FLUX_SAFE_RESOLUTIONS:
+            return (image,)
+
+        samples = image.movedim(-1, 1)  # B, C, H, W
+        orig_h, orig_w = samples.shape[2], samples.shape[3]
+
+        target_pixels = int(round(total_megapixels * 1024 * 1024))
+        scale_by = math.sqrt(target_pixels / (orig_w * orig_h))
+
+        new_w = max(1, round(orig_w * scale_by))
+        new_h = max(1, round(orig_h * scale_by))
+
+        scaled = comfy.utils.common_upscale(samples, new_w, new_h, upscale_method, "disabled")
+        scaled = scaled.movedim(1, -1)  # B, H, W, C
+        return (scaled,)
+    
+########################################################################################################################
 
 # NODE MAPPING
 NODE_CLASS_MAPPINGS = {
@@ -305,12 +380,14 @@ NODE_CLASS_MAPPINGS = {
     "Sd 1.5 Empty Latent Image": Sd15EmptyLatentImage,
     "SDXL Resolutions": SDXL_Resolutions,
     "Image Scale To Total Pixels (SDXL Safe)": ImageScaleToTotalPixelsSafe,
+    "Flux Image Scale To Total Pixels (Flux Safe)": FluxImageScaleToTotalPixelsSafe,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "Flux Empty Latent Image": "Flux Empty Latent Image",
-    "Sdxl Empty Latent Image": "SDXL Empty Latent Image",
-    "Sd 1.5 Empty Latent Image": "SD 1.5 Empty Latent Image",
-    "SDXL Resolutions": "SDXL Resolutions (Settings)",
-    "Image Scale To Total Pixels (SDXL Safe)": "Scale Image (SDXL Safe)",
+    "Flux Empty Latent Image": "Flux Empty Latent Image MXD",
+    "Sdxl Empty Latent Image": "SDXL Empty Latent Image MXD",
+    "Sd 1.5 Empty Latent Image": "SD1.5 Empty Latent Image MXD",
+    "SDXL Resolutions": "SDXL Resolutions",
+    "Image Scale To Total Pixels (SDXL Safe)": "Scale Image (SDXL Safe) MXD",
+    "Flux Image Scale To Total Pixels (Flux Safe)": "Scale Image (Flux Safe) MXD",
 }
