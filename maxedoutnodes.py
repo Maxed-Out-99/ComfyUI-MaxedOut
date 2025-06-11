@@ -1,8 +1,8 @@
-import torch
-import comfy
-import comfy.model_management
-import math
+import torch, math, comfy
 import comfy.utils
+import comfy.model_management
+from comfy.comfy_types import IO, ComfyNodeABC, InputTypeDict
+import node_helpers
 ########################################################################################################################
     # Flux Empty Latent Image (SD3-compatible)
 class FluxEmptyLatentImage:
@@ -288,6 +288,37 @@ class FluxImageScaleToTotalPixelsSafe:
         return (scaled,)
     
 ########################################################################################################################
+# Prompt with Guidance (Flux)
+class PromptWithGuidance(ComfyNodeABC):
+    DESCRIPTION = """
+    - Combines clip text encode with flux guidance to lower node count.
+
+    - Also removes the need to convert them into node group within ComfyUI. 
+    """
+    @classmethod
+    def INPUT_TYPES(cls) -> InputTypeDict:
+        return {
+            "required": {
+                "text": (IO.STRING, {"multiline": True, "dynamicPrompts": True}),
+                "clip": (IO.CLIP, {"tooltip": "The CLIP model used for encoding the text."}),
+                "guidance": ("FLOAT", {"default": 3.5, "min": 0.0, "max": 100.0, "step": 0.1})
+            }
+        }
+
+    RETURN_TYPES = (IO.CONDITIONING,)
+    FUNCTION = "encode_and_guide"
+    CATEGORY = "KJNodes/conditioning"
+
+    def encode_and_guide(self, text, clip, guidance):
+        if clip is None:
+            raise RuntimeError("CLIP model is None. Your checkpoint may not contain a text encoder.")
+        
+        tokens = clip.tokenize(text)
+        conditioning = clip.encode_from_tokens_scheduled(tokens)
+        conditioning = node_helpers.conditioning_set_values(conditioning, {"guidance": guidance})
+        return (conditioning,)
+    
+########################################################################################################################
 
 # NODE MAPPING
 NODE_CLASS_MAPPINGS = {
@@ -295,11 +326,13 @@ NODE_CLASS_MAPPINGS = {
     "Sdxl Empty Latent Image": SdxlEmptyLatentImage,
     "Image Scale To Total Pixels (SDXL Safe)": ImageScaleToTotalPixelsSafe,
     "Flux Image Scale To Total Pixels (Flux Safe)": FluxImageScaleToTotalPixelsSafe,
+    "Prompt With Guidance (Flux)": PromptWithGuidance,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "Flux Empty Latent Image": "Flux Empty Latent Image MXD",
     "Sdxl Empty Latent Image": "SDXL Empty Latent Image MXD",
-    "Image Scale To Total Pixels (SDXL Safe)": "Scale Image (SDXL Safe)",
-    "Flux Image Scale To Total Pixels (Flux Safe)": "Scale Image (Flux Safe)",
+    "Image Scale To Total Pixels (SDXL Safe)": "Scale Image (SDXL Safe) MXD",
+    "Flux Image Scale To Total Pixels (Flux Safe)": "Scale Image (Flux Safe) MXD",
+    "Prompt With Guidance (Flux)": "Prompt with Flux Guidance MXD",
 }
