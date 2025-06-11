@@ -16,23 +16,28 @@ class FluxEmptyLatentImage:
     CATEGORY = "KJNodes/Latent"
 
     RESOLUTIONS = {
-        "High Res (1:1) Square 1408x1408": (1408, 1408),
-        "High Res (3:2) Landscape 1728x1152": (1728, 1152),
-        "High Res (4:3) Standard 1664x1216": (1664, 1216),
-        "High Res (16:9) Widescreen 1920x1088": (1920, 1088),
-        "High Res (21:9) Ultrawide 2176x960": (2176, 960),
-        "Standard Res (1:1) Square 1024x1024": (1024, 1024),  
-        "Standard Res (3:2) Landscape 1216x832": (1216, 832),
-        "Standard Res (4:3) Standard 1152x896": (1152, 896),
-        "Standard Res (16:9) Widescreen 1344x768": (1344, 768),
-        "Standard Res (21:9) Ultrawide 1536x640": (1536, 640),
-        "Low Res (1:1) Square 320x320": (320, 320),
-        "Low Res (3:2) Landscape 384x256": (384, 256),
-        "Low Res (4:3) Standard 448x320": (448, 320),
-        "Low Res (16:9) Widescreen 448x256": (448, 256),
-        "Low Res (21:9) Ultrawide 576x256": (576, 256),
-    }
+        "— High Resolutions —": None,
+        "Square (1:1) 1408x1408": (1408, 1408),
+        "Standard (4:3) 1664x1216": (1664, 1216),
+        "Landscape (3:2) 1728x1152": (1728, 1152),
+        "Widescreen (16:9) 1920x1088": (1920, 1088),
+        "Ultrawide (21:9) 2176x960": (2176, 960),
 
+        "— Standard Resolutions —": None,
+        "Square (1:1) 1024x1024": (1024, 1024),
+        "Standard (4:3) 1152x896": (1152, 896),
+        "Landscape (3:2) 1216x832": (1216, 832),
+        "Widescreen (16:9) 1344x768": (1344, 768),
+        "Ultrawide (21:9) 1536x640": (1536, 640),
+
+        "— Low Resolutions —": None,
+        "Square (1:1) 320x320": (320, 320),
+        "Standard (4:3) 448x320": (448, 320),
+        "Landscape (3:2) 384x256": (384, 256),
+        "Widescreen (16:9) 448x256": (448, 256),
+        "Ultrawide (21:9) 576x256": (576, 256),
+    }
+    
     def __init__(self):
         self.device = comfy.model_management.intermediate_device()
 
@@ -42,7 +47,7 @@ class FluxEmptyLatentImage:
             "required": {
                 "resolution": (
                     list(cls.RESOLUTIONS.keys()),
-                    {"default": "Standard Res (1:1) Square 1024x1024"}
+                    {"default": "Square (1:1) 1024x1024"}
                 ),
                 "vertical": ("BOOLEAN",),
                 "batch_size": (
@@ -62,11 +67,14 @@ class FluxEmptyLatentImage:
     FUNCTION = "generate"
 
     def generate(self, resolution, vertical, batch_size=1) -> tuple:
-        width, height = self.RESOLUTIONS[resolution]
+        size = self.RESOLUTIONS.get(resolution)
+        if size is None:
+            raise ValueError(f"'{resolution}' is a header or invalid option.")
+
+        width, height = size
         if vertical:
             width, height = height, width
 
-        # Use 16 channels for SD3 compatibility (instead of 4)
         latent = torch.zeros([batch_size, 16, height // 8, width // 8], device=self.device)
         return ({"samples": latent},)
 
@@ -88,8 +96,8 @@ class SdxlEmptyLatentImage:
     # SDXL predefined resolutions (width, height)
     RESOLUTIONS = {
         "Square (1:1) 1024x1024": (1024, 1024),
-        "Standard Wide (4:3) 1152x896": (1152, 896),
-        "Cinematic Wide (3:2) 1216x832": (1216, 832),
+        "Standard (4:3) 1152x896": (1152, 896),
+        "Landscape (3:2) 1216x832": (1216, 832),
         "Widescreen (16:9) 1344x768": (1344, 768),
         "Ultra-Wide (21:9) 1536x640": (1536, 640),
     }
@@ -135,98 +143,6 @@ class SdxlEmptyLatentImage:
         latent = torch.zeros([batch_size, 4, height // 8, width // 8], device=self.device)
         return ({"samples": latent},)
     
-########################################################################################################################
-# SDXL Resolutions
-class SDXL_Resolutions:
-    RESOLUTIONS = {
-        "Square (1:1) 1024x1024": (1024, 1024),
-        "Standard Wide (4:3) 1152x896": (1152, 896),
-        "Cinematic Wide (3:2) 1216x832": (1216, 832),
-        "Ultra-Wide (16:9) 1344x768": (1344, 768),
-        "Super Ultra-Wide (21:9) 1536x640": (1536, 640),
-    }
-
-    def __init__(self):
-        pass
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "resolution": (list(cls.RESOLUTIONS.keys()),),
-                "vertical": ("BOOLEAN", {"default": False, "tooltip": "Swap width and height if true"})
-            }
-        }
-
-    RETURN_TYPES = ("INT", "INT")
-    RETURN_NAMES = ("width", "height")
-    FUNCTION = "get_resolution"
-    CATEGORY = "JPS Nodes/Settings"
-
-    def get_resolution(self, resolution, vertical=False):
-        # Retrieve width and height from the preset dictionary.
-        width, height = self.RESOLUTIONS[resolution]
-        # If vertical mode is enabled, swap the dimensions.
-        if vertical:
-            width, height = height, width
-        return int(width), int(height)
-
-########################################################################################################################
-# SD 1.5 Empty Latent Image
-class Sd15EmptyLatentImage:
-    TITLE = "Sd 1.5 Empty Latent Image (With Resolutions)"
-    CATEGORY = "latent"
-    # Adjusted resolutions to be multiples of 64 (SD 1.5 compatible)
-    RESOLUTIONS = {
-        "Square (1:1) 512x512": (512, 512),
-        "Standard Wide (4:3) 576x448": (576, 448),
-        "Portrait (4:5) 448x352": (448, 352),
-        "Cinematic Wide (3:2) 576x384": (576, 384),
-        "Ultra-Wide (16:9) 640x384": (640, 384),
-        "Super Ultra-Wide (21:9) 768x320": (768, 320),
-    }
-
-    def __init__(self):
-        # Retrieve the intermediate device (usually the GPU) from ComfyUI's model management.
-        self.device = comfy.model_management.intermediate_device()
-
-    @classmethod
-    def INPUT_TYPES(cls) -> dict:
-        return {
-            "required": {
-                # Dropdown selection for one of the predefined SD 1.5 resolutions.
-                "resolution": (list(cls.RESOLUTIONS.keys()),),
-                # Toggle for vertical mode (swaps width and height).
-                "vertical": ("BOOLEAN",),
-                # Number of latent images to create in the batch.
-                "batch_size": (
-                    "INT",
-                    {
-                        "default": 1,
-                        "min": 1,
-                        "max": 4096,
-                        "tooltip": "The number of latent images in the batch."
-                    }
-                )
-            }
-        }
-
-    RETURN_TYPES = ("LATENT",)
-    OUTPUT_TOOLTIPS = ("The empty latent image batch.",)
-    FUNCTION = "generate"
-
-    def generate(self, resolution, vertical, batch_size=1) -> tuple:
-        # Get the selected resolution tuple (width, height)
-        width, height = self.RESOLUTIONS[resolution]
-        # If vertical mode is enabled, swap width and height.
-        if vertical:
-            width, height = height, width
-
-        # Create an empty latent tensor.
-        # SD 1.5 uses 4 latent channels, and spatial dimensions are 1/8th of image size.
-        latent = torch.zeros([batch_size, 4, height // 8, width // 8], device=self.device)
-        return ({"samples": latent},)
-
 ########################################################################################################################
 # Image Scale To Total Pixels (SDXL Safe)
 class ImageScaleToTotalPixelsSafe:
@@ -377,8 +293,6 @@ class FluxImageScaleToTotalPixelsSafe:
 NODE_CLASS_MAPPINGS = {
     "Flux Empty Latent Image": FluxEmptyLatentImage,
     "Sdxl Empty Latent Image": SdxlEmptyLatentImage,
-    "Sd 1.5 Empty Latent Image": Sd15EmptyLatentImage,
-    "SDXL Resolutions": SDXL_Resolutions,
     "Image Scale To Total Pixels (SDXL Safe)": ImageScaleToTotalPixelsSafe,
     "Flux Image Scale To Total Pixels (Flux Safe)": FluxImageScaleToTotalPixelsSafe,
 }
@@ -386,8 +300,6 @@ NODE_CLASS_MAPPINGS = {
 NODE_DISPLAY_NAME_MAPPINGS = {
     "Flux Empty Latent Image": "Flux Empty Latent Image MXD",
     "Sdxl Empty Latent Image": "SDXL Empty Latent Image MXD",
-    "Sd 1.5 Empty Latent Image": "SD1.5 Empty Latent Image MXD",
-    "SDXL Resolutions": "SDXL Resolutions",
-    "Image Scale To Total Pixels (SDXL Safe)": "Scale Image (SDXL Safe) MXD",
-    "Flux Image Scale To Total Pixels (Flux Safe)": "Scale Image (Flux Safe) MXD",
+    "Image Scale To Total Pixels (SDXL Safe)": "Scale Image (SDXL Safe)",
+    "Flux Image Scale To Total Pixels (Flux Safe)": "Scale Image (Flux Safe)",
 }
