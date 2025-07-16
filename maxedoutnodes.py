@@ -1,9 +1,9 @@
+from __future__ import annotations
 import torch, math, comfy
 import comfy.utils
 import comfy.model_management
 from comfy.comfy_types import IO, ComfyNodeABC, InputTypeDict
 import node_helpers
-from __future__ import annotations
 
 ########################################################################################################################
 # Flux Empty Latent Image (SD3-compatible)
