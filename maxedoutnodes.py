@@ -321,6 +321,93 @@ class PromptWithGuidance(ComfyNodeABC):
         return (conditioning,)
     
 ########################################################################################################################    
+class FluxResolutionMatcher:
+    """
+    A utility node for ComfyUI that takes an input image and finds the best matching
+    resolution and orientation from a predefined list compatible with Flux/SD3.
+    It outputs a resolution string and a boolean that can be piped directly into
+    the 'Flux Empty Latent Image' node.
+    """
+    # --- ComfyUI Setup ---
+    TITLE = "Flux Resolution Matcher"
+    CATEGORY = "KJNodes/Latent"
+    DESCRIPTION = "Takes an image and finds the closest resolution for Flux Empty Latent."
+    
+    FUNCTION = "match_resolution"
+    RETURN_NAMES = ("resolution", "vertical")
+
+    # The list of resolutions this node will match against.
+    RESOLUTIONS = {
+        "— High Resolutions —": None,
+        "Square (1:1) 1408x1408": (1408, 1408),
+        "Standard (4:3) 1664x1216": (1664, 1216),
+        "Landscape (3:2) 1728x1152": (1728, 1152),
+        "Widescreen (16:9) 1920x1088": (1920, 1088),
+        "Ultrawide (21:9) 2176x960": (2176, 960),
+        "— Standard Resolutions —": None,
+        "Square (1:1) 1024x1024": (1024, 1024),
+        "Standard (4:3) 1152x896": (1152, 896),
+        "Landscape (3:2) 1216x832": (1216, 832),
+        "Widescreen (16:9) 1344x768": (1344, 768),
+        "Ultrawide (21:9) 1536x640": (1536, 640),
+        "— Low Resolutions —": None,
+        "Square (1:1) 320x320": (320, 320),
+        "Standard (4:3) 448x320": (448, 320),
+        "Landscape (3:2) 384x256": (384, 256),
+        "Widescreen (16:9) 448x256": (448, 256),
+        "Ultrawide (21:9) 576x256": (576, 256),
+    }
+
+    # THIS IS THE CORRECTED LINE:
+    # We define the output type as the list of resolution keys, which ComfyUI
+    # recognizes as a COMBO type, allowing it to connect to the target node.
+    RETURN_TYPES = (list(RESOLUTIONS.keys()), "BOOLEAN")
+
+    # --- Pre-computation at Class Load Time ---
+    ASPECT_RATIO_GROUPS = {}
+    for res_str, dims in RESOLUTIONS.items():
+        if dims is None:
+            continue
+        group_name = " ".join(res_str.split(' ')[:-1])
+        if group_name not in ASPECT_RATIO_GROUPS:
+            w, h = dims
+            ratio = w / h
+            ASPECT_RATIO_GROUPS[group_name] = {'ratio': ratio, 'resolutions': []}
+        ASPECT_RATIO_GROUPS[group_name]['resolutions'].append(res_str)
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+            }
+        }
+
+    def match_resolution(self, image: torch.Tensor):
+        if image.dim() < 4 or image.shape[1] < 1 or image.shape[2] < 1:
+            print("Warning: Invalid image tensor received. Falling back to default resolution.")
+            return ("Square (1:1) 1024x1024", False)
+
+        _batch, height, width, _channels = image.shape
+        is_vertical = height > width
+        img_aspect_ratio = (height / width) if is_vertical else (width / height)
+        img_area = height * width
+
+        best_ar_group_name = min(
+            self.ASPECT_RATIO_GROUPS.keys(),
+            key=lambda name: abs(img_aspect_ratio - self.ASPECT_RATIO_GROUPS[name]['ratio'])
+        )
+
+        candidate_res_strings = self.ASPECT_RATIO_GROUPS[best_ar_group_name]['resolutions']
+        
+        best_res_string = min(
+            candidate_res_strings,
+            key=lambda res_str: abs(img_area - (self.RESOLUTIONS[res_str][0] * self.RESOLUTIONS[res_str][1]))
+        )
+
+        return (best_res_string, is_vertical)
+
+########################################################################################################################
 
 # NODE MAPPING
 NODE_CLASS_MAPPINGS = {
@@ -329,6 +416,7 @@ NODE_CLASS_MAPPINGS = {
     "Image Scale To Total Pixels (SDXL Safe)": ImageScaleToTotalPixelsSafe,
     "Flux Image Scale To Total Pixels (Flux Safe)": FluxImageScaleToTotalPixelsSafe,
     "Prompt With Guidance (Flux)": PromptWithGuidance,
+    "FluxResolutionMatcher": FluxResolutionMatcher
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -337,4 +425,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Image Scale To Total Pixels (SDXL Safe)": "Scale Image (SDXL Safe) MXD",
     "Flux Image Scale To Total Pixels (Flux Safe)": "Scale Image (Flux Safe) MXD",
     "Prompt With Guidance (Flux)": "Prompt with Flux Guidance MXD",
+    "FluxResolutionMatcher": "Flux Resolution Matcher MXD"
 }
