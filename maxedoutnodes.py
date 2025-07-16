@@ -351,6 +351,7 @@ class DummyNegativePrompt(ComfyNodeABC):
         conditioning = clip.encode_from_tokens_scheduled(tokens)
         return (conditioning,)
     
+########################################################################################################################    
 
 # NODE MAPPING
 NODE_CLASS_MAPPINGS = {
@@ -359,6 +360,7 @@ NODE_CLASS_MAPPINGS = {
     "Image Scale To Total Pixels (SDXL Safe)": ImageScaleToTotalPixelsSafe,
     "Flux Image Scale To Total Pixels (Flux Safe)": FluxImageScaleToTotalPixelsSafe,
     "Prompt With Guidance (Flux)": PromptWithGuidance,
+    "Dummy Negative Prompt": DummyNegativePrompt,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -367,4 +369,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Image Scale To Total Pixels (SDXL Safe)": "Scale Image (SDXL Safe) MXD",
     "Flux Image Scale To Total Pixels (Flux Safe)": "Scale Image (Flux Safe) MXD",
     "Prompt With Guidance (Flux)": "Prompt with Flux Guidance MXD",
+    "Dummy Negative Prompt": "Dummy Prompt MXD",
 }
