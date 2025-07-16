@@ -51,7 +51,7 @@ class FluxEmptyLatentImage:
                     list(cls.RESOLUTIONS.keys()),
                     {"default": "Square (1:1) 1024x1024"}
                 ),
-                "vertical": ("BOOLEAN",),
+                "vertical": ("BOOLEAN", {"default": False}),
                 "batch_size": (
                     "INT",
                     {
@@ -115,7 +115,7 @@ class SdxlEmptyLatentImage:
                 # Dropdown selection for one of the predefined SDXL resolutions.
                 "resolution": (list(cls.RESOLUTIONS.keys()),),
                 # Toggle for vertical mode (swaps width and height).
-                "vertical": ("BOOLEAN",),
+                "vertical": ("BOOLEAN", {"default": False}),
                 # Number of latent images to create in the batch.
                 "batch_size": (
                     "INT",
