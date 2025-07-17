@@ -157,7 +157,7 @@ class ImageScaleToTotalPixelsSafe:
     - Meant for SDXL workflows (e.g. image-to-image, inpainting)
     to auto-scale random images but not images already made with SDXL.
     """
-    upscale_methods = ["nearest-exact", "bilinear", "area", "bicubic", "lanczos"]
+    upscale_methods = ["bilinear", "bicubic", "lanczos"]
 
     # SDXL-safe resolutions (width, height) – store one orientation only,
     # the code will check both (w, h) and (h, w)
@@ -174,7 +174,7 @@ class ImageScaleToTotalPixelsSafe:
         return {
             "required": {
                 "image": ("IMAGE",),
-                "upscale_method": (cls.upscale_methods,),
+                "upscale_method": (cls.upscale_methods, {"default": "bilinear"}),
                 "total_megapixels": (
                     "FLOAT",
                     {
@@ -225,7 +225,7 @@ class FluxImageScaleToTotalPixelsSafe:
     - Meant for image-to-image or inpainting workflows to auto-scale 
     arbitrary images, but skip images already matching Flux resolutions.
     """
-    upscale_methods = ["nearest-exact", "bilinear", "area", "bicubic", "lanczos"]
+    upscale_methods = ["bilinear", "bicubic", "lanczos"]
 
     # Flux-safe resolutions (width, height) – stored in one orientation only
     FLUX_SAFE_RESOLUTIONS = [
@@ -251,7 +251,7 @@ class FluxImageScaleToTotalPixelsSafe:
         return {
             "required": {
                 "image": ("IMAGE",),
-                "upscale_method": (cls.upscale_methods, ),
+                "upscale_method": (cls.upscale_methods, {"default": "bilinear"}),
                 "total_megapixels": (
                     "FLOAT",
                     {
