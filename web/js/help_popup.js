@@ -42,7 +42,7 @@ const base = new URL('../lib/', import.meta.url)
 loadScript(new URL('marked.min.js', base).pathname).catch(console.error)
 loadScript(new URL('purify.min.js', base).pathname).catch(console.error)
 
-const categories = ["MXD", "SUPIR", "VoiceCraft", "Marigold", "IC-Light", "WanVideoWrapper"];
+const categories = ["MXD"];
 app.registerExtension({
         name: "MXD.HelpPopup",
 	async beforeRegisterNodeDef(nodeType, nodeData) {
