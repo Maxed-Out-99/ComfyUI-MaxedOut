@@ -4,15 +4,14 @@ import comfy.utils
 import comfy.model_management
 from comfy.comfy_types import IO, ComfyNodeABC, InputTypeDict
 import node_helpers
-
 ########################################################################################################################
 # Flux Empty Latent Image (SD3-compatible)
 class FluxEmptyLatentImage:
     DESCRIPTION = """
-    - Provides a wide selection of resolutions for easy selection.
+    - Provides a wide selection of resolutions for Flux for easy selection.
 
-    - Meant to save time from manually entering
-    the resolution in the "Empty Latent Image" node.
+    - Meant to save time from manually entering the same 
+    resolutions in the "Empty Latent Image" node over and over.
     """
     TITLE = "Flux Empty Latent Image"
     CATEGORY = "MXD/Latent"
@@ -84,13 +83,10 @@ class FluxEmptyLatentImage:
 # Sdxl Empty Latent Image
 class SdxlEmptyLatentImage:
     DESCRIPTION = """
-    - Generates empty latent images. 
+    - Provides all compatible SDXL resolutions easy selection.
 
-    - All supported SDXL resolutions 
-    are predefined for ease of use.
-    
-    - Meant to save time from manually entering
-    the resolution in the "Empty Latent Image" node.
+    - Meant to save time from manually entering the same 
+    resolutions in the "Empty Latent Image" node over and over.
     """
     TITLE = "Sdxl Empty Latent Image (With Resolutions)"
     CATEGORY = "MXD/Latent"
@@ -323,10 +319,8 @@ class PromptWithGuidance(ComfyNodeABC):
 ########################################################################################################################    
 class FluxResolutionMatcher:
     """
-    A utility node for ComfyUI that takes an input image and finds the best matching
-    resolution and orientation from a predefined list compatible with Flux/SD3.
-    It outputs a resolution string and a boolean that can be piped directly into
-    the 'Flux Empty Latent Image' node.
+    - For forcing the Flux Empty Latent Image node to auto-match the aspect ratio of the input image.
+    - Resolution and vertical outputs plug into the Flux Empty Latent Image node.
     """
     # --- ComfyUI Setup ---
     TITLE = "Flux Resolution Matcher"
@@ -358,9 +352,6 @@ class FluxResolutionMatcher:
         "Ultrawide (21:9) 576x256": (576, 256),
     }
 
-    # THIS IS THE CORRECTED LINE:
-    # We define the output type as the list of resolution keys, which ComfyUI
-    # recognizes as a COMBO type, allowing it to connect to the target node.
     RETURN_TYPES = (list(RESOLUTIONS.keys()), "BOOLEAN")
 
     # --- Pre-computation at Class Load Time ---
@@ -409,6 +400,45 @@ class FluxResolutionMatcher:
 
 ########################################################################################################################
 
+class LatentHalfMasks:
+    """
+    - Splits latent into clean left/right masks.
+    - Designed for dual-character setups with two Apply PuLID nodes.
+    - Simplifies by removing many masking/math nodes.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "latent": ("LATENT",),
+            }
+        }
+
+    RETURN_TYPES = ("MASK", "MASK")
+    RETURN_NAMES = ("mask_left", "mask_right")
+    FUNCTION = "make_masks"
+    CATEGORY = "max/helpers"
+
+    def make_masks(self, latent):
+        # Infer width/height from latent (assumes 8x scale)
+        samples = latent.get("samples", None)
+        if samples is None or not isinstance(samples, torch.Tensor):
+            raise ValueError("LatentHalfMasks: invalid latent or missing 'samples' tensor.")
+        h_lat, w_lat = samples.shape[-2], samples.shape[-1]
+        w, h = int(w_lat * 8), int(h_lat * 8)
+
+        # Always vertical, center split, no feather, no swap
+        split_px = w // 2
+        left = torch.zeros((h, w), dtype=torch.float32)
+        right = torch.zeros((h, w), dtype=torch.float32)
+        left[:, :split_px] = 1.0
+        right[:, split_px:] = 1.0
+
+        return left, right
+    
+########################################################################################################################
+
 # NODE MAPPING
 NODE_CLASS_MAPPINGS = {
     "Flux Empty Latent Image": FluxEmptyLatentImage,
@@ -416,7 +446,8 @@ NODE_CLASS_MAPPINGS = {
     "Image Scale To Total Pixels (SDXL Safe)": ImageScaleToTotalPixelsSafe,
     "Flux Image Scale To Total Pixels (Flux Safe)": FluxImageScaleToTotalPixelsSafe,
     "Prompt With Guidance (Flux)": PromptWithGuidance,
-    "FluxResolutionMatcher": FluxResolutionMatcher
+    "FluxResolutionMatcher": FluxResolutionMatcher,
+    "LatentHalfMasks": LatentHalfMasks,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -425,5 +456,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Image Scale To Total Pixels (SDXL Safe)": "Scale Image (SDXL Safe) MXD",
     "Flux Image Scale To Total Pixels (Flux Safe)": "Scale Image (Flux Safe) MXD",
     "Prompt With Guidance (Flux)": "Prompt with Flux Guidance MXD",
-    "FluxResolutionMatcher": "Flux Resolution Matcher MXD"
+    "FluxResolutionMatcher": "Flux Resolution Matcher MXD",
+    "LatentHalfMasks": "Latent to L/R Masks MXD",
 }
