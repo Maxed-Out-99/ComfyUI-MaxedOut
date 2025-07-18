@@ -45,12 +45,12 @@ loadScript('/kjweb_async/purify.min.js').catch((e) => {
   console.log(e)
 })
 
-const categories = ["KJNodes", "SUPIR", "VoiceCraft", "Marigold", "IC-Light", "WanVideoWrapper"];
+const categories = ["MXD", "SUPIR", "VoiceCraft", "Marigold", "IC-Light", "WanVideoWrapper"];
 app.registerExtension({
-	name: "KJNodes.HelpPopup",
+        name: "MXD.HelpPopup",
 	async beforeRegisterNodeDef(nodeType, nodeData) {
   
-  if (app.ui.settings.getSettingValue("KJNodes.helpPopup") === false) {
+  if (app.ui.settings.getSettingValue("MXD.helpPopup") === false) {
     return;
     }
 		try {
@@ -61,7 +61,7 @@ app.registerExtension({
         else return
     });
 		} catch (error) {
-			console.error("Error in registering KJNodes.HelpPopup", error);
+                        console.error("Error in registering MXD.HelpPopup", error);
 		}
 	},
 });

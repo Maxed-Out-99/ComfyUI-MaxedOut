@@ -2,9 +2,9 @@ import { app } from "../../../scripts/app.js";
 import { applyTextReplacements } from "../../../scripts/utils.js";
 
 app.registerExtension({
-	name: "KJNodes.jsnodes",
+        name: "MXD.jsnodes",
 	async beforeRegisterNodeDef(nodeType, nodeData, app) {
-		if(!nodeData?.category?.startsWith("KJNodes")) {
+            if(!nodeData?.category?.startsWith("MXD")) {
 			return;
 		  }
 		switch (nodeData.name) {

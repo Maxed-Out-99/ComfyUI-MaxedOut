@@ -15,7 +15,7 @@ class FluxEmptyLatentImage:
     the resolution in the "Empty Latent Image" node.
     """
     TITLE = "Flux Empty Latent Image"
-    CATEGORY = "KJNodes/Latent"
+    CATEGORY = "MXD/Latent"
 
     RESOLUTIONS = {
         "— High Resolutions —": None,
@@ -93,7 +93,7 @@ class SdxlEmptyLatentImage:
     the resolution in the "Empty Latent Image" node.
     """
     TITLE = "Sdxl Empty Latent Image (With Resolutions)"
-    CATEGORY = "KJNodes/Latent"
+    CATEGORY = "MXD/Latent"
 
     # SDXL predefined resolutions (width, height)
     RESOLUTIONS = {
@@ -190,7 +190,7 @@ class ImageScaleToTotalPixelsSafe:
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "upscale"
-    CATEGORY = "KJNodes/Upscaling"
+    CATEGORY = "MXD/Upscaling"
 
     def upscale(self, image, upscale_method, total_megapixels):
         b, h, w, c = image.shape
@@ -267,7 +267,7 @@ class FluxImageScaleToTotalPixelsSafe:
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "upscale"
-    CATEGORY = "KJNodes/Upscaling"
+    CATEGORY = "MXD/Upscaling"
 
     def upscale(self, image, upscale_method, total_megapixels):
         b, h, w, c = image.shape
@@ -309,7 +309,7 @@ class PromptWithGuidance(ComfyNodeABC):
 
     RETURN_TYPES = (IO.CONDITIONING,)
     FUNCTION = "encode_and_guide"
-    CATEGORY = "KJNodes/conditioning"
+    CATEGORY = "MXD/conditioning"
 
     def encode_and_guide(self, text, clip, guidance):
         if clip is None:
@@ -330,7 +330,7 @@ class FluxResolutionMatcher:
     """
     # --- ComfyUI Setup ---
     TITLE = "Flux Resolution Matcher"
-    CATEGORY = "KJNodes/Latent"
+    CATEGORY = "MXD/Latent"
     DESCRIPTION = "Takes an image and finds the closest resolution for Flux Empty Latent."
     
     FUNCTION = "match_resolution"
