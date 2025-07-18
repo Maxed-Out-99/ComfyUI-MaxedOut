@@ -1,5 +1,5 @@
-import { app } from "../../../scripts/app.js";
-import { applyTextReplacements } from "../../../scripts/utils.js";
+import { app } from "../../../../scripts/app.js";
+import { applyTextReplacements } from "../../../../scripts/utils.js";
 
 app.registerExtension({
         name: "MXD.jsnodes",
