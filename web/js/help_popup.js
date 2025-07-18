@@ -38,12 +38,9 @@ export const loadScript = (
   })
 }
 
-loadScript('/kjweb_async/marked.min.js').catch((e) => {
-  console.log(e)
-})
-loadScript('/kjweb_async/purify.min.js').catch((e) => {
-  console.log(e)
-})
+const base = new URL('../lib/', import.meta.url)
+loadScript(new URL('marked.min.js', base).pathname).catch(console.error)
+loadScript(new URL('purify.min.js', base).pathname).catch(console.error)
 
 const categories = ["MXD", "SUPIR", "VoiceCraft", "Marigold", "IC-Light", "WanVideoWrapper"];
 app.registerExtension({
