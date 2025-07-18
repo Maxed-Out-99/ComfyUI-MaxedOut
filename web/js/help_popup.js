@@ -1,4 +1,4 @@
-import { app } from "../../../scripts/app.js";
+import { app } from "../../../../scripts/app.js";
 
 // code based on mtb nodes by Mel Massadian https://github.com/melMass/comfy_mtb/
 export const loadScript = (
