@@ -143,7 +143,7 @@ class SdxlEmptyLatentImage:
     
 ########################################################################################################################
 # Image Scale To Total Pixels (SDXL Safe)
-class ImageScaleToTotalPixelsSafe:
+class SDXLImageScaleToTotalPixelsSafe:
     DESCRIPTION = """
     - Scales to target megapixel count, preserving aspect ratio.
 
@@ -153,7 +153,7 @@ class ImageScaleToTotalPixelsSafe:
     - Meant for SDXL workflows (e.g. image-to-image, inpainting)
     to auto-scale random images but not images already made with SDXL.
     """
-    upscale_methods = ["bilinear", "bicubic", "lanczos"]
+    upscale_methods = ["bilinear", "bicubic", "lanczos", "nearest-exact", "area"]
 
     # SDXL-safe resolutions (width, height) – store one orientation only,
     # the code will check both (w, h) and (h, w)
@@ -189,6 +189,13 @@ class ImageScaleToTotalPixelsSafe:
     CATEGORY = "MXD/Upscaling"
 
     def upscale(self, image, upscale_method, total_megapixels):
+        if upscale_method in ["nearest-exact", "area"]:
+            raise Exception(
+                f"❌ '{upscale_method}' gives poor results.\n\n"
+                f"👉 Go to the Scale SDXL Image MXD node and switch to another like 'lanczos'.\n\n"
+                f"Node may be hidden behind KSampler."
+            )
+        
         b, h, w, c = image.shape
 
         # Skip scaling if the image already matches an SDXL-safe resolution
@@ -221,7 +228,7 @@ class FluxImageScaleToTotalPixelsSafe:
     - Meant for image-to-image or inpainting workflows to auto-scale 
     arbitrary images, but skip images already matching Flux resolutions.
     """
-    upscale_methods = ["bilinear", "bicubic", "lanczos"]
+    upscale_methods = ["bilinear", "bicubic", "lanczos", "nearest-exact", "area"]
 
     # Flux-safe resolutions (width, height) – stored in one orientation only
     FLUX_SAFE_RESOLUTIONS = [
@@ -266,6 +273,13 @@ class FluxImageScaleToTotalPixelsSafe:
     CATEGORY = "MXD/Upscaling"
 
     def upscale(self, image, upscale_method, total_megapixels):
+        if upscale_method in ["nearest-exact", "area"]:
+            raise Exception(
+                f"❌ '{upscale_method}' gives poor results.\n\n"
+                f"👉 Go to the Scale Flux Image  MXD node and switch to another like 'lanczos'.\n\n"
+                f"Node may be hidden behind KSampler."
+            )
+        
         b, h, w, c = image.shape
 
         # Skip scaling if image matches any Flux-safe resolution
@@ -443,7 +457,7 @@ class LatentHalfMasks:
 NODE_CLASS_MAPPINGS = {
     "Flux Empty Latent Image": FluxEmptyLatentImage,
     "Sdxl Empty Latent Image": SdxlEmptyLatentImage,
-    "Image Scale To Total Pixels (SDXL Safe)": ImageScaleToTotalPixelsSafe,
+    "Image Scale To Total Pixels (SDXL Safe)": SDXLImageScaleToTotalPixelsSafe,
     "Flux Image Scale To Total Pixels (Flux Safe)": FluxImageScaleToTotalPixelsSafe,
     "Prompt With Guidance (Flux)": PromptWithGuidance,
     "FluxResolutionMatcher": FluxResolutionMatcher,
@@ -453,8 +467,8 @@ NODE_CLASS_MAPPINGS = {
 NODE_DISPLAY_NAME_MAPPINGS = {
     "Flux Empty Latent Image": "Flux Empty Latent Image MXD",
     "Sdxl Empty Latent Image": "SDXL Empty Latent Image MXD",
-    "Image Scale To Total Pixels (SDXL Safe)": "Scale Image (SDXL Safe) MXD",
-    "Flux Image Scale To Total Pixels (Flux Safe)": "Scale Image (Flux Safe) MXD",
+    "Image Scale To Total Pixels (SDXL Safe)": "Scale SDXL Image MXD",
+    "Flux Image Scale To Total Pixels (Flux Safe)": "Scale Flux Image MXD",
     "Prompt With Guidance (Flux)": "Prompt with Flux Guidance MXD",
     "FluxResolutionMatcher": "Flux Resolution Matcher MXD",
     "LatentHalfMasks": "Latent to L/R Masks MXD",
