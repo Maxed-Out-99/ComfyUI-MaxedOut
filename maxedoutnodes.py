@@ -4,6 +4,10 @@ import comfy.utils
 import comfy.model_management
 from comfy.comfy_types import IO, ComfyNodeABC, InputTypeDict
 import node_helpers
+import numpy as np
+from PIL import Image
+
+
 ########################################################################################################################
 # Flux Empty Latent Image (SD3-compatible)
 class FluxEmptyLatentImage:
@@ -332,14 +336,13 @@ class PromptWithGuidance(ComfyNodeABC):
     
 ########################################################################################################################    
 class FluxResolutionMatcher:
-    """
+    DESCRIPTION = """
     - For forcing the Flux Empty Latent Image node to auto-match the aspect ratio of the input image.
+
     - Resolution and vertical outputs plug into the Flux Empty Latent Image node.
     """
     # --- ComfyUI Setup ---
-    TITLE = "Flux Resolution Matcher"
     CATEGORY = "MXD/Latent"
-    DESCRIPTION = "Takes an image and finds the closest resolution for Flux Empty Latent."
     
     FUNCTION = "match_resolution"
     RETURN_NAMES = ("resolution", "vertical")
@@ -415,7 +418,7 @@ class FluxResolutionMatcher:
 ########################################################################################################################
 
 class LatentHalfMasks:
-    """
+    DESCRIPTION = """
     - Splits latent into clean left/right masks.
     - Designed for dual-character setups with two Apply PuLID nodes.
     - Simplifies by removing many masking/math nodes.
@@ -432,7 +435,7 @@ class LatentHalfMasks:
     RETURN_TYPES = ("MASK", "MASK")
     RETURN_NAMES = ("mask_left", "mask_right")
     FUNCTION = "make_masks"
-    CATEGORY = "max/helpers"
+    CATEGORY = "MXD/latent"
 
     def make_masks(self, latent):
         # Infer width/height from latent (assumes 8x scale)
@@ -453,6 +456,211 @@ class LatentHalfMasks:
     
 ########################################################################################################################
 
+# --- Helper function to find the bounding box of a mask ---
+def get_bounding_box(mask_tensor):
+    """
+    Finds the bounding box of a non-zero region in a mask tensor.
+    The mask is expected to be a 2D tensor (H, W).
+    Returns a tuple (x_min, y_min, x_max, y_max) or None if the mask is empty.
+    """
+    # Get non-zero coordinates from the mask
+    non_zero_coords = torch.nonzero(mask_tensor, as_tuple=False)
+
+    # If the mask is empty, there is no bounding box
+    if non_zero_coords.numel() == 0:
+        return None
+
+    # Find the min and max coordinates for y (dim 0) and x (dim 1)
+    min_y = non_zero_coords[:, 0].min().item()
+    max_y = non_zero_coords[:, 0].max().item()
+    min_x = non_zero_coords[:, 1].min().item()
+    max_x = non_zero_coords[:, 1].max().item()
+
+    # The bounding box for PIL needs (left, upper, right, lower).
+    # We add +1 to the max values because the upper bound is exclusive.
+    return (min_x, min_y, max_x + 1, max_y + 1)
+
+# --- Tensor to PIL and PIL to Tensor conversion helpers ---
+def tensor_to_pil(tensor):
+    """Converts a torch tensor (B, H, W, C) to a list of PIL Images."""
+    if tensor is None:
+        return []
+        
+    # Handle different tensor dimensions
+    if tensor.dim() == 4: # Batch of images
+        images = []
+        for i in range(tensor.shape[0]):
+            img_np = 255. * tensor[i].cpu().numpy()
+            images.append(Image.fromarray(np.clip(img_np, 0, 255).astype(np.uint8)))
+        return images
+    elif tensor.dim() == 3: # Single image
+        img_np = 255. * tensor.cpu().numpy()
+        return [Image.fromarray(np.clip(img_np, 0, 255).astype(np.uint8))]
+    else:
+        raise ValueError(f"Unsupported tensor dimension: {tensor.dim()}")
+
+def pil_to_tensor(pil_images):
+    """Converts a list of PIL Images back to a torch tensor (B, H, W, C)."""
+    if not isinstance(pil_images, list):
+        pil_images = [pil_images]
+    
+    tensors = []
+    for img in pil_images:
+        # Convert to RGB, then to a numpy array, normalize, and create a tensor
+        img_np = np.array(img.convert("RGB")).astype(np.float32) / 255.0
+        tensors.append(torch.from_numpy(img_np).unsqueeze(0))
+    
+    # Stack all tensors into a single batch tensor
+    return torch.cat(tensors, dim=0)
+
+# --------------------------------------------------------------------
+# ✨ The Main Node Class ✨
+# --------------------------------------------------------------------
+class PlaceImageByMask:
+    Description = """
+    - Overlay an image onto a base image.
+    - The position and scale of the overlay are determined by a mask's bounding box.
+    - Useful for placing images in specific regions of a base image.
+    """
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "base_image": ("IMAGE",),
+                "mask": ("MASK",),
+                "overlay_image": ("IMAGE",),
+            },
+            "optional": {
+                "maintain_aspect_ratio": ("BOOLEAN", {"default": True}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "place_image"
+    CATEGORY = "MXD/Image"
+
+    def place_image(self, base_image, overlay_image, mask, maintain_aspect_ratio=True):
+        # Convert input tensors to lists of PIL Images
+        base_pils = tensor_to_pil(base_image)
+        overlay_pils = tensor_to_pil(overlay_image)
+        
+        processed_images = []
+        
+        # Process each image in the batch
+        for i, base_pil in enumerate(base_pils):
+            # Work with an RGBA version of the base image for clean pasting
+            composited_image = base_pil.convert("RGBA")
+            
+            # Select the corresponding overlay and mask for the current base image
+            # Clamping the index prevents errors if batch sizes are mismatched
+            overlay_pil = overlay_pils[min(i, len(overlay_pils) - 1)].convert("RGBA")
+            current_mask = mask[min(i, mask.shape[0] - 1)]
+
+            # Find the bounding box from the mask
+            bbox = get_bounding_box(current_mask)
+            
+            # If no mask is found, just use the original base image and skip to the next
+            if not bbox:
+                processed_images.append(base_pil)
+                continue
+                
+            x_min, y_min, x_max, y_max = bbox
+            box_width = x_max - x_min
+            box_height = y_max - y_min
+
+            # If the bounding box has no area, skip to the next image
+            if box_width <= 0 or box_height <= 0:
+                processed_images.append(base_pil)
+                continue
+
+            # --- Resize the overlay image using the specified method ---
+            if maintain_aspect_ratio:
+                # Resize to fit *within* the box, preserving aspect ratio (like a thumbnail)
+                resized_overlay = overlay_pil.copy()
+                resized_overlay.thumbnail((box_width, box_height), Image.Resampling.LANCZOS)
+                
+                # Calculate position to center the resized overlay within the bounding box
+                paste_x = x_min + (box_width - resized_overlay.width) // 2
+                paste_y = y_min + (box_height - resized_overlay.height) // 2
+                paste_pos = (paste_x, paste_y)
+            else:
+                # As originally requested: stretch to fill the bounding box exactly
+                resized_overlay = overlay_pil.resize((box_width, box_height), resample=Image.Resampling.LANCZOS)
+                paste_pos = (x_min, y_min)
+
+            # --- Paste the resized overlay onto the base image ---
+            # The alpha channel of the overlay itself is used as the mask for pasting.
+            # This ensures transparent areas of the overlay are handled correctly.
+            composited_image.paste(resized_overlay, paste_pos, resized_overlay)
+            
+            processed_images.append(composited_image)
+
+        # Convert the list of processed PIL images back to a single batch tensor for output
+        output_tensor = pil_to_tensor(processed_images)
+        return (output_tensor,)
+
+######################################################################################################################################
+
+class CropImageByMask:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "image": ("IMAGE", ),
+            },
+            "optional": {
+                "mask": ("MASK", ),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE", )
+    RETURN_NAMES = ("image", )
+    FUNCTION = "crop"
+    CATEGORY = "MXD/image"
+
+    def crop(self, image, mask=None):
+        # If no mask is provided or the mask is completely empty, return the original image
+        if mask is None or not torch.any(mask > 0):
+            return (image, )
+
+        B, H, W, C = image.shape
+        mask = mask.round()
+        
+        # Find bounding box for each batch
+        crops = []
+        
+        for b in range(B):
+            current_mask = mask[min(b, mask.shape[0]-1)]
+            
+            # Check if the mask for this specific image is empty.
+            if not torch.any(current_mask > 0):
+                # If a specific mask in a batch is empty, we can't crop.
+                # To prevent errors with torch.cat later due to different sizes,
+                # we'll skip cropping for the whole batch and return the original.
+                # This ensures the output is always a valid tensor.
+                print("Warning: An empty mask was found in a batch. Returning original images.")
+                return (image, )
+
+            # Get coordinates of non-zero elements
+            rows = torch.any(current_mask > 0, dim=1)
+            cols = torch.any(current_mask > 0, dim=0)
+            
+            # Find boundaries
+            y_min, y_max = torch.where(rows)[0][[0, -1]]
+            x_min, x_max = torch.where(cols)[0][[0, -1]]
+            
+            # Crop image
+            crop = image[b:b+1, y_min:y_max+1, x_min:x_max+1, :]            
+            crops.append(crop)
+        
+        # Note: This will raise an error if the crops have different sizes.
+        # The original code had this limitation.
+        cropped_images = torch.cat(crops, dim=0)
+        
+        return (cropped_images, )
+
+########################################################################################################################
+
 # NODE MAPPING
 NODE_CLASS_MAPPINGS = {
     "Flux Empty Latent Image": FluxEmptyLatentImage,
@@ -462,6 +670,8 @@ NODE_CLASS_MAPPINGS = {
     "Prompt With Guidance (Flux)": PromptWithGuidance,
     "FluxResolutionMatcher": FluxResolutionMatcher,
     "LatentHalfMasks": LatentHalfMasks,
+    "Place Image By Mask": PlaceImageByMask,
+    "Crop Image By Mask": CropImageByMask,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -472,4 +682,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Prompt With Guidance (Flux)": "Prompt with Flux Guidance MXD",
     "FluxResolutionMatcher": "Flux Resolution Matcher MXD",
     "LatentHalfMasks": "Latent to L/R Masks MXD",
+    "Place Image By Mask": "Place Image by Mask MXD",
+    "Crop Image By Mask": "Crop Image by Mask MXD",
 }
