@@ -561,9 +561,8 @@ class PlaceImageByMask:
             
             # If no mask is found, just use the original base image and skip to the next
             if not bbox:
-                processed_images.append(base_pil)
-                continue
-                
+                raise ValueError("The base image must be masked where you want the overlay to appear.")
+
             x_min, y_min, x_max, y_max = bbox
             box_width = x_max - x_min
             box_height = y_max - y_min
