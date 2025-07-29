@@ -84,8 +84,39 @@ class FluxEmptyLatentImage:
         return ({"samples": latent},)
 
 ########################################################################################################################
+# Flux Resolution Selector (for feeding into FluxEmptyLatentImage)
+class FluxResolutionSelector:
+    DESCRIPTION = """
+    - Provides a dropdown selection of Flux resolutions.
+    - Output connects directly to the 'resolution' input of FluxEmptyLatentImage.
+    - Useful for separating resolution selection from latent generation.
+    """
+    TITLE = "Flux Resolution Selector"
+    CATEGORY = "MXD/Latent"
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict:
+        return {
+            "required": {
+                "resolution": (
+                    list(FluxEmptyLatentImage.RESOLUTIONS.keys()),  # Include ALL keys including headers
+                    {"default": "Square (1:1) 1024x1024"}
+                ),
+            }
+        }
+
+    RETURN_TYPES = (list(FluxEmptyLatentImage.RESOLUTIONS.keys()),)
+    RETURN_NAMES = ("resolution",)
+    OUTPUT_TOOLTIPS = ("The selected resolution string for FluxEmptyLatentImage.",)
+    FUNCTION = "select_resolution"
+
+    def select_resolution(self, resolution) -> tuple:
+        return (resolution,)
+
+########################################################################################################################
 # Sdxl Empty Latent Image
 class SdxlEmptyLatentImage:
+
     DESCRIPTION = """
     - Provides all compatible SDXL resolutions easy selection.
 
@@ -144,7 +175,33 @@ class SdxlEmptyLatentImage:
         # Typically, the latent space has 4 channels and each spatial dimension is 1/8th of the image.
         latent = torch.zeros([batch_size, 4, height // 8, width // 8], device=self.device)
         return ({"samples": latent},)
-    
+########################################################################################################################
+# SDXL Resolution Selector
+class SdxlResolutionSelector:
+    DESCRIPTION = """
+    - Provides a dropdown selection of SDXL resolutions.
+    - Output connects directly to SDXL Empty Latent Image resolution input.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict:
+        return {
+            "required": {
+                "resolution": (
+                    list(SdxlEmptyLatentImage.RESOLUTIONS.keys()),
+                    {"default": "Square (1:1) 1024x1024"}
+                ),
+            }
+        }
+
+    RETURN_TYPES = (list(SdxlEmptyLatentImage.RESOLUTIONS.keys()),)
+    RETURN_NAMES = ("resolution",)
+    FUNCTION = "select_resolution"
+    CATEGORY = "MXD/Latent"
+
+    def select_resolution(self, resolution) -> tuple:
+        return (resolution,)
+
 ########################################################################################################################
 # Image Scale To Total Pixels (SDXL Safe)
 class SDXLImageScaleToTotalPixelsSafe:
@@ -664,6 +721,8 @@ class CropImageByMask:
 NODE_CLASS_MAPPINGS = {
     "Flux Empty Latent Image": FluxEmptyLatentImage,
     "Sdxl Empty Latent Image": SdxlEmptyLatentImage,
+    "Flux Resolution Selector": FluxResolutionSelector,
+    "Sdxl Resolution Selector": SdxlResolutionSelector,
     "Image Scale To Total Pixels (SDXL Safe)": SDXLImageScaleToTotalPixelsSafe,
     "Flux Image Scale To Total Pixels (Flux Safe)": FluxImageScaleToTotalPixelsSafe,
     "Prompt With Guidance (Flux)": PromptWithGuidance,
@@ -676,6 +735,8 @@ NODE_CLASS_MAPPINGS = {
 NODE_DISPLAY_NAME_MAPPINGS = {
     "Flux Empty Latent Image": "Flux Empty Latent Image MXD",
     "Sdxl Empty Latent Image": "SDXL Empty Latent Image MXD",
+    "Flux Resolution Selector": "Flux Resolution Selector MXD",
+    "Sdxl Resolution Selector": "SDXL Resolution Selector MXD",
     "Image Scale To Total Pixels (SDXL Safe)": "Scale SDXL Image MXD",
     "Flux Image Scale To Total Pixels (Flux Safe)": "Scale Flux Image MXD",
     "Prompt With Guidance (Flux)": "Prompt with Flux Guidance MXD",
