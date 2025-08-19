@@ -1,12 +1,8 @@
 from __future__ import annotations
-import torch, math, comfy
-import comfy.utils
-import comfy.model_management
+import torch, math, comfy, os, folder_paths, node_helpers, comfy.model_management, comfy.utils
 from comfy.comfy_types import IO, ComfyNodeABC, InputTypeDict
-import node_helpers
 import numpy as np
-from PIL import Image
-
+from PIL import Image, ImageDraw, ImageOps
 
 ########################################################################################################################
 # Flux Empty Latent Image (SD3-compatible)
@@ -717,6 +713,59 @@ class CropImageByMask:
 
 ########################################################################################################################
 
+class LoadImageBatchMXD:
+    CATEGORY = "MXD/Image"
+    RETURN_TYPES = ("IMAGE", "MASK")
+    RETURN_NAMES = ("IMAGE", "MASK")
+    OUTPUT_IS_LIST = (True, True)
+    FUNCTION = "load_batch"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        outputs_root = folder_paths.get_output_directory()
+        subdirs = [""] + sorted(
+            [d for d in os.listdir(outputs_root) if os.path.isdir(os.path.join(outputs_root, d))]
+        )
+        return {
+            "required": {
+                "folder": (tuple(subdirs), {"default": ""}),
+            }
+        }
+
+    def load_batch(self, folder: str):
+        outputs_root = folder_paths.get_output_directory()
+        folder_path = os.path.join(outputs_root, folder) if folder else outputs_root
+
+        if not os.path.isdir(folder_path):
+            raise FileNotFoundError(f"No such folder: {folder_path}")
+
+        valid_exts = (".png", ".jpg", ".jpeg", ".webp")
+        files = [os.path.join(folder_path, f) for f in sorted(os.listdir(folder_path))
+                 if f.lower().endswith(valid_exts)]
+
+        images, masks = [], []
+        for path in files:
+            i = Image.open(path)
+            i = ImageOps.exif_transpose(i)
+            rgb = i.convert("RGB")
+            arr = np.array(rgb).astype(np.float32) / 255.0
+            img_t = torch.from_numpy(arr)[None, ...]
+
+            if 'A' in i.getbands():
+                mask = np.array(i.getchannel('A')).astype(np.float32) / 255.0
+                mask_t = 1.0 - torch.from_numpy(mask).unsqueeze(0)
+            else:
+                h, w = arr.shape[:2]
+                mask_t = torch.zeros((1, h, w), dtype=torch.float32)
+
+            images.append(img_t)
+            masks.append(mask_t)
+
+        return (images, masks)
+
+########################################################################################################################
+
+
 # NODE MAPPING
 NODE_CLASS_MAPPINGS = {
     "Flux Empty Latent Image": FluxEmptyLatentImage,
@@ -730,6 +779,7 @@ NODE_CLASS_MAPPINGS = {
     "LatentHalfMasks": LatentHalfMasks,
     "Place Image By Mask": PlaceImageByMask,
     "Crop Image By Mask": CropImageByMask,
+    "Load Image Batch MXD": LoadImageBatchMXD,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -744,4 +794,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "LatentHalfMasks": "Latent to L/R Masks MXD",
     "Place Image By Mask": "Place Image by Mask MXD",
     "Crop Image By Mask": "Crop Image by Mask MXD",
+    "Load Image Batch MXD": "Load Image Batch MXD",
 }
