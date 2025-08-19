@@ -427,17 +427,96 @@ class LoadLatents_FromFolder_WithParams:
             raise RuntimeError("[LoadLatents_FromFolder_WithParams] Internal length mismatch.")
 
         return (samples_list, positives, negatives, steps_list, cfgs, samplers, schedulers, end_steps, filename_prefixes)
-    
+
+
+# ---------- Empty latent image generator (for video nodes) ----------
+class Wan2_2EmptyLatentImageMXD:
+    """
+    Utility node for WAN 2.2 workflows.
+    Generates an empty latent tensor at common video-friendly resolutions.
+    """
+
+    DESCRIPTION = """
+    - Creates an empty latent tensor sized for WAN 2.2 video generation.
+    - Includes presets for 480p and 720p in multiple aspect ratios.
+    - Enforces dimensions divisible by 8 for model compatibility.
+    - Batch size supported (all latents share the same resolution).
+    """
+    TITLE = "WAN2.2 Empty Latent Image"
+    CATEGORY = "WAN2.2/Latent"
+
+    RESOLUTIONS = {
+        "— 720p —": None,
+        "Widescreen (16:9) 1288×720": (1288, 720),
+        "Square (1:1) 960×960": (960, 960),
+        "Standard (4:3) 960×720": (960, 720),
+        "Landscape (3:2) 1088×720": (1088, 720),
+
+        "— 480p —": None,
+        "Widescreen (16:9) 832×480": (832, 480),
+        "Square (1:1) 624×624": (624, 624),
+        "Standard (4:3) 640×480": (640, 480),
+        "Landscape (3:2) 720×480": (720, 480),
+    }
+
+    RETURN_TYPES = ("LATENT",)
+    FUNCTION = "generate"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        options = list(cls.RESOLUTIONS.keys())
+        return {
+            "required": {
+                "resolution": (
+                    options,
+                    {"default": "Square (1:1) 960×960", "tooltip": "Select target resolution preset."}
+                ),
+                "vertical": (
+                    "BOOLEAN",
+                    {"default": False, "label_on": "Vertical", "label_off": "Landscape",
+                     "tooltip": "Swap width/height for vertical orientation."}
+                ),
+                "batch_size": (
+                    "INT",
+                    {"default": 1, "min": 1, "max": 4096, "tooltip": "Number of latents to generate."}
+                ),
+            }
+        }
+
+    def generate(self, resolution, vertical, batch_size):
+        size = self.RESOLUTIONS.get(resolution)
+        if size is None:
+            raise ValueError(f"'{resolution}' is a header or invalid option.")
+
+        w, h = size
+        if vertical:
+            w, h = h, w
+
+        # Safety: ensure divisible by 8
+        if (w % 8) or (h % 8):
+            raise ValueError(f"Resolution must be divisible by 8. Got {w}x{h}.")
+
+        # WAN video length always t=1
+        t = 1
+
+        latent = torch.zeros(
+            [batch_size, 16, t, h // 8, w // 8],
+            device=comfy.model_management.intermediate_device()
+        )
+        return ({"samples": latent},)
 
 # ---------- Node registration ----------
 NODE_CLASS_MAPPINGS = {
     "SaveLatentMXD": SaveLatentMXD,
     "LoadLatent_WithParams": LoadLatent_WithParams,
     "LoadLatents_FromFolder_WithParams": LoadLatents_FromFolder_WithParams,
+    "Wan2_2EmptyLatentImageMXD": Wan2_2EmptyLatentImageMXD,
+    
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "SaveLatentMXD": "Save Latent MXD",
     "LoadLatent_WithParams": "Load Latent MXD",
     "LoadLatents_FromFolder_WithParams": "Load Latent Batch MXD",
+    "Wan2_2EmptyLatentImageMXD": "Wan 2.2 Empty Latent Image MXD",
 }
