@@ -472,10 +472,22 @@ class FluxResolutionMatcher:
 
 class LatentHalfMasks:
     DESCRIPTION = """
-    - Splits latent into clean left/right masks.
-    - Designed for dual-character setups with two Apply PuLID nodes.
-    - Simplifies by removing many masking/math nodes.
+    - Splits a latent tensor into left and right half masks.
+
+    - Designed for dual-character setups (e.g. two Apply PuLID nodes).
+
+    - Simplifies workflows by removing manual math/masking steps.
     """
+    TITLE = "Latent Half Masks"
+    CATEGORY = "MXD/Latent"
+
+    RETURN_TYPES = ("MASK", "MASK")
+    RETURN_NAMES = ("mask_left", "mask_right")
+    OUTPUT_TOOLTIPS = (
+        "Mask covering the left half of the latent.",
+        "Mask covering the right half of the latent.",
+    )
+    FUNCTION = "make_masks"
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -572,7 +584,9 @@ def pil_to_tensor(pil_images):
 class PlaceImageByMask:
     Description = """
     - Overlay an image onto a base image.
+
     - The position and scale of the overlay are determined by a mask's bounding box.
+
     - Useful for placing images in specific regions of a base image.
     """
     @classmethod
@@ -714,9 +728,22 @@ class CropImageByMask:
 ########################################################################################################################
 
 class LoadImageBatchMXD:
+    DESCRIPTION = """
+    - Loads all images in a selected folder under outputs/.
+
+    - Automatically generates masks from alpha channel if present.
+
+    - Outputs lists of images and masks for batch workflows.
+    """
+    TITLE = "Load Image Batch (Outputs)"
     CATEGORY = "MXD/Image"
+
     RETURN_TYPES = ("IMAGE", "MASK")
     RETURN_NAMES = ("IMAGE", "MASK")
+    OUTPUT_TOOLTIPS = (
+        "List of loaded images.",
+        "List of generated masks (or blank masks if no alpha).",
+    )
     OUTPUT_IS_LIST = (True, True)
     FUNCTION = "load_batch"
 
