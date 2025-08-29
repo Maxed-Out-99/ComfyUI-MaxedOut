@@ -1,8 +1,8 @@
 from __future__ import annotations
-import torch, math, comfy, os, folder_paths, node_helpers, comfy.model_management, comfy.utils
+import torch, math, comfy, os, folder_paths, node_helpers, comfy.model_management, comfy.utils, json, hashlib
 from comfy.comfy_types import IO, ComfyNodeABC, InputTypeDict
 import numpy as np
-from PIL import Image, ImageDraw, ImageOps
+from PIL import Image, ImageOps, ImageSequence
 
 ########################################################################################################################
 # Flux Empty Latent Image (SD3-compatible)
@@ -726,25 +726,84 @@ class CropImageByMask:
         return (cropped_images, )
 
 ########################################################################################################################
+# ---------- Helpers (copied from latent loader style) ----------
+def _safe_json_loads(s):
+    if s is None:
+        return None
+    if isinstance(s, bytes):
+        try:
+            s = s.decode("utf-8", "ignore")
+        except Exception:
+            return None
+    if not isinstance(s, str):
+        return None
+    try:
+        return json.loads(s)
+    except Exception:
+        try:
+            return json.loads(json.loads(s))
+        except Exception:
+            return None
 
+
+def _extract_params_from_prompt_json(prompt_json: dict):
+    """
+    Returns (positive, negative) from saved Comfy prompt graph.
+    """
+    pos = ""
+    neg = ""
+    if not isinstance(prompt_json, dict):
+        return pos, neg
+
+    # unwrap if saved as {"prompt": {...}}
+    graph = prompt_json.get("prompt", prompt_json)
+    if not isinstance(graph, dict):
+        return pos, neg
+
+    # try to find KSampler/KSamplerAdvanced node
+    ks = None
+    for _, v in graph.items():
+        if "KSampler" in v.get("class_type", ""):
+            ks = v
+            break
+    if not ks:
+        return pos, neg
+
+    kin = ks.get("inputs", {})
+
+    def _as_node_id(x):
+        return str(x[0]) if isinstance(x, (list, tuple)) and x else None
+
+    def _text_from_clip(node_id):
+        n = graph.get(str(node_id), {})
+        if n.get("class_type") == "CLIPTextEncode":
+            return str(n.get("inputs", {}).get("text", "")).strip()
+        return ""
+
+    pos = _text_from_clip(_as_node_id(kin.get("positive")))
+    neg = _text_from_clip(_as_node_id(kin.get("negative")))
+
+    return pos, neg
+
+def _strip_counter(name: str) -> str:
+    stem, _ = os.path.splitext(name)
+    while stem and (stem[-1] in "_-" or stem[-1].isdigit()):
+        stem = stem[:-1]
+    return stem
+
+# ---------- Node ----------
 class LoadImageBatchMXD:
     DESCRIPTION = """
     - Loads all images in a selected folder under outputs/.
-
     - Automatically generates masks from alpha channel if present.
-
-    - Outputs lists of images and masks for batch workflows.
+    - Extracts positive/negative prompts from image metadata (if available).
     """
-    TITLE = "Load Image Batch (Outputs)"
+    TITLE = "Load Image Batch (Outputs + Prompts)"
     CATEGORY = "MXD/Image"
 
-    RETURN_TYPES = ("IMAGE", "MASK")
-    RETURN_NAMES = ("IMAGE", "MASK")
-    OUTPUT_TOOLTIPS = (
-        "List of loaded images.",
-        "List of generated masks (or blank masks if no alpha).",
-    )
-    OUTPUT_IS_LIST = (True, True)
+    RETURN_TYPES = ("IMAGE", "MASK", "STRING", "STRING")
+    RETURN_NAMES = ("IMAGE", "MASK", "positive", "negative")
+    OUTPUT_IS_LIST = (True, True, True, True)
     FUNCTION = "load_batch"
 
     @classmethod
@@ -753,11 +812,21 @@ class LoadImageBatchMXD:
         subdirs = [""] + sorted(
             [d for d in os.listdir(outputs_root) if os.path.isdir(os.path.join(outputs_root, d))]
         )
-        return {
-            "required": {
-                "folder": (tuple(subdirs), {"default": ""}),
-            }
-        }
+        return {"required": {"folder": (tuple(subdirs), {"default": ""})}}
+
+    def _extract_prompts(self, image: Image.Image):
+        pos, neg = "", ""
+        try:
+            raw = image.info.get("prompt")
+            if raw:
+                prompt_json = _safe_json_loads(raw)
+                if prompt_json:
+                    pos, neg = _extract_params_from_prompt_json(prompt_json)
+                else:
+                    pos = raw
+        except Exception as e:
+            print(f"[LoadImageBatchMXD] Prompt parse failed: {e}")
+        return pos, neg
 
     def load_batch(self, folder: str):
         outputs_root = folder_paths.get_output_directory()
@@ -770,10 +839,16 @@ class LoadImageBatchMXD:
         files = [os.path.join(folder_path, f) for f in sorted(os.listdir(folder_path))
                  if f.lower().endswith(valid_exts)]
 
-        images, masks = [], []
+        images, masks, positives, negatives, prefixes = [], [], [], [], []
+
         for path in files:
             i = Image.open(path)
             i = ImageOps.exif_transpose(i)
+
+            pos, neg = self._extract_prompts(i)
+            positives.append(pos)
+            negatives.append(neg)
+
             rgb = i.convert("RGB")
             arr = np.array(rgb).astype(np.float32) / 255.0
             img_t = torch.from_numpy(arr)[None, ...]
@@ -788,8 +863,96 @@ class LoadImageBatchMXD:
             images.append(img_t)
             masks.append(mask_t)
 
-        return (images, masks)
+        return (images, masks, positives, negatives)
+    
+class LoadImageWithPromptsMXD:
+    CATEGORY = "image"
 
+    RETURN_TYPES = ("IMAGE", "MASK", "STRING", "STRING")
+    RETURN_NAMES = ("IMAGE", "MASK", "positive", "negative")
+    FUNCTION = "load_image"
+
+    @classmethod
+    def INPUT_TYPES(s):
+        input_dir = folder_paths.get_input_directory()
+        files = [f for f in os.listdir(input_dir) if os.path.isfile(os.path.join(input_dir, f))]
+        files = folder_paths.filter_files_content_types(files, ["image"])
+        return {"required": {"image": (sorted(files), {"image_upload": True})}}
+
+    def _extract_prompts(self, img: Image.Image):
+        pos, neg = "", ""
+        raw = img.info.get("prompt")
+        if raw:
+            prompt_json = _safe_json_loads(raw)
+            if prompt_json:
+                pos, neg = _extract_params_from_prompt_json(prompt_json)
+            else:
+                pos = raw
+        return pos, neg
+
+    def load_image(self, image):
+        image_path = folder_paths.get_annotated_filepath(image)
+        img = node_helpers.pillow(Image.open, image_path)
+
+        output_images, output_masks = [], []
+        pos, neg = "", ""
+        w, h = None, None
+
+        excluded_formats = ['MPO']
+
+        for i in ImageSequence.Iterator(img):
+            i = node_helpers.pillow(ImageOps.exif_transpose, i)
+
+            if i.mode == 'I':
+                i = i.point(lambda i: i * (1 / 255))
+            frame = i.convert("RGB")
+
+            if len(output_images) == 0:
+                w, h = frame.size
+                # extract prompts only once (from first frame)
+                pos, neg = self._extract_prompts(i)
+
+            if frame.size != (w, h):
+                continue
+
+            arr = np.array(frame).astype(np.float32) / 255.0
+            tensor_img = torch.from_numpy(arr)[None, ...]
+
+            if 'A' in i.getbands():
+                mask = np.array(i.getchannel('A')).astype(np.float32) / 255.0
+                mask = 1. - torch.from_numpy(mask)
+            elif i.mode == 'P' and 'transparency' in i.info:
+                mask = np.array(i.convert('RGBA').getchannel('A')).astype(np.float32) / 255.0
+                mask = 1. - torch.from_numpy(mask)
+            else:
+                mask = torch.zeros((1, 64, 64), dtype=torch.float32, device="cpu")
+
+            output_images.append(tensor_img)
+            output_masks.append(mask.unsqueeze(0))
+
+        if len(output_images) > 1 and img.format not in excluded_formats:
+            output_image = torch.cat(output_images, dim=0)
+            output_mask = torch.cat(output_masks, dim=0)
+        else:
+            output_image = output_images[0]
+            output_mask = output_masks[0]
+
+        return (output_image, output_mask, pos, neg)
+
+    @classmethod
+    def IS_CHANGED(s, image):
+        image_path = folder_paths.get_annotated_filepath(image)
+        m = hashlib.sha256()
+        with open(image_path, 'rb') as f:
+            m.update(f.read())
+        return m.digest().hex()
+
+    @classmethod
+    def VALIDATE_INPUTS(s, image):
+        if not folder_paths.exists_annotated_filepath(image):
+            return f"Invalid image file: {image}"
+        return True
+    
 ########################################################################################################################
 
 
@@ -807,6 +970,7 @@ NODE_CLASS_MAPPINGS = {
     "Place Image By Mask": PlaceImageByMask,
     "Crop Image By Mask": CropImageByMask,
     "Load Image Batch MXD": LoadImageBatchMXD,
+    "LoadImageWithPromptsMXD": LoadImageWithPromptsMXD,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -822,4 +986,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Place Image By Mask": "Place Image by Mask MXD",
     "Crop Image By Mask": "Crop Image by Mask MXD",
     "Load Image Batch MXD": "Load Image Batch MXD",
+    "LoadImageWithPromptsMXD": "Load Image MXD",
 }
