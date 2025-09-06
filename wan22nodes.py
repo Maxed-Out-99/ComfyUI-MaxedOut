@@ -447,7 +447,7 @@ class Wan2_2EmptyLatentImageMXD:
 
     RESOLUTIONS = {
         "— 720p —": None,
-        "Widescreen (16:9) 1288×720": (1288, 720),
+        "Widescreen (16:9) 1280×720": (1280, 720),
         "Square (1:1) 960×960": (960, 960),
         "Standard (4:3) 960×720": (960, 720),
         "Landscape (3:2) 1088×720": (1088, 720),
