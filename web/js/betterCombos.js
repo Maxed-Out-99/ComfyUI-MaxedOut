@@ -5,22 +5,27 @@ import { api } from "../../../scripts/api.js";
 
 const CHECKPOINT_LOADER = "CheckpointLoader|pysssss";
 const LORA_LOADER = "LoraLoader|pysssss";
+const LOAD_LATENT_WITH_PARAMS = "LoadLatent_WithParams";
 const IMAGE_WIDTH = 384;
 const IMAGE_HEIGHT = 384;
 
-function getType(node) {
-	if (node.comfyClass === CHECKPOINT_LOADER) {
-		return "checkpoints";
-	}
-	return "loras";
-}
+const NODE_CONFIGS = {
+        [CHECKPOINT_LOADER]: { type: "checkpoints", widgetName: "ckpt_name", hasImages: true },
+        [LORA_LOADER]: { type: "loras", widgetName: "lora_name", hasImages: true },
+        [LOAD_LATENT_WITH_PARAMS]: { type: "latents", widgetName: "latent", hasImages: false },
+};
 
-function getWidgetName(type) {
-	return type === "checkpoints" ? "ckpt_name" : "lora_name";
-}
+const CONFIG_BY_TYPE = Object.fromEntries(
+        Object.values(NODE_CONFIGS).map((config) => [config.type, config])
+);
+
+const getNodeConfig = (nodeOrClass) => {
+        const comfyClass = typeof nodeOrClass === "string" ? nodeOrClass : nodeOrClass?.comfyClass;
+        return comfyClass ? NODE_CONFIGS[comfyClass] : undefined;
+};
 
 function encodeRFC3986URIComponent(str) {
-	return encodeURIComponent(str).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+        return encodeURIComponent(str).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 }
 
 const calculateImagePosition = (el, bodyRect) => {
@@ -63,18 +68,36 @@ function showImage(relativeToEl, imageEl) {
 	document.body.appendChild(imageEl);
 }
 
-let imagesByType = {};
+const imagesByType = {};
+const imagePromises = {};
+
 const loadImageList = async (type) => {
-	imagesByType[type] = await (await api.fetchApi(`/pysssss/images/${type}`)).json();
+        imagesByType[type] = await (await api.fetchApi(`/pysssss/images/${type}`)).json();
+        return imagesByType[type];
 };
 
+const ensureImageList = (type) => {
+        const config = CONFIG_BY_TYPE[type];
+        if (!config?.hasImages) {
+                return Promise.resolve();
+        }
+        if (!imagePromises[type]) {
+                imagePromises[type] = loadImageList(type);
+        }
+        return imagePromises[type];
+};
+
+for (const type of Object.keys(CONFIG_BY_TYPE)) {
+        imagesByType[type] = {};
+}
+
 app.registerExtension({
-	name: "pysssss.Combo++",
-	init() {
+        name: "pysssss.Combo++",
+        init() {
 		const displayOptions = { "List (normal)": 0, "Tree (subfolders)": 1, "Thumbnails (grid)": 2 };
-		const displaySetting = app.ui.settings.addSetting({
-			id: "pysssss.Combo++.Submenu",
-			name: "🐍 Lora & Checkpoint loader display mode",
+                const displaySetting = app.ui.settings.addSetting({
+                        id: "pysssss.Combo++.Submenu",
+                        name: "🐍 Loader display mode (Lora/Checkpoint/Latent)",
 			defaultValue: 1,
 			type: "combo",
 			options: (value) => {
@@ -157,20 +180,21 @@ app.registerExtension({
 			`,
 			parent: document.body,
 		});
-		const p1 = loadImageList("checkpoints");
-		const p2 = loadImageList("loras");
+                const imageTypes = Object.keys(CONFIG_BY_TYPE).filter((type) => CONFIG_BY_TYPE[type].hasImages);
+                for (const type of imageTypes) {
+                        ensureImageList(type).catch(() => {});
+                }
 
-		const refreshComboInNodes = app.refreshComboInNodes;
-		app.refreshComboInNodes = async function () {
-			const r = await Promise.all([
-				refreshComboInNodes.apply(this, arguments),
-				loadImageList("checkpoints").catch(() => {}),
-				loadImageList("loras").catch(() => {}),
-			]);
-			return r[0];
-		};
+                const refreshComboInNodes = app.refreshComboInNodes;
+                app.refreshComboInNodes = async function () {
+                        const r = await Promise.all([
+                                refreshComboInNodes.apply(this, arguments),
+                                ...imageTypes.map((type) => ensureImageList(type).catch(() => {})),
+                        ]);
+                        return r[0];
+                };
 
-		const imageHost = $el("img.pysssss-combo-image");
+                const imageHost = $el("img.pysssss-combo-image");
 
 		const positionMenu = (menu, fillWidth) => {
 			// compute best position
@@ -190,21 +214,21 @@ app.registerExtension({
 			}
 		};
 
-		const updateMenu = async (menu, type) => {
-			try {
-				await p1;
-				await p2;
-			} catch (error) {
-				console.error(error);
-				console.error("Error loading pysssss.betterCombos data");
-			}
+                const updateMenu = async (menu, config) => {
+                        const { type } = config;
+                        try {
+                                await ensureImageList(type);
+                        } catch (error) {
+                                console.error(error);
+                                console.error("Error loading pysssss.betterCombos data");
+                        }
 
 			// Clamp max height so it doesn't overflow the screen
 			const position = menu.getBoundingClientRect();
 			const maxHeight = window.innerHeight - position.top - 20;
 			menu.style.maxHeight = `${maxHeight}px`;
 
-			const images = imagesByType[type];
+                        const images = imagesByType[type] || {};
 			const items = menu.querySelectorAll(".litemenu-entry");
 
 			// Add image handler to items
@@ -261,7 +285,7 @@ app.registerExtension({
 						item.prepend(prefix);
 					}
 
-					addImageHandler(item);
+                                        addImageHandler(item);
 
 					if (path.length === 1) {
 						rootItems.push(item);
@@ -356,18 +380,19 @@ app.registerExtension({
 				}
 				positionMenu(menu, true);
 			} else {
-				for (const item of items) {
-					addImageHandler(item);
-				}
-			}
-		};
+                                for (const item of items) {
+                                        addImageHandler(item);
+                                }
+                        }
+                };
 
-		const mutationObserver = new MutationObserver((mutations) => {
-			const node = app.canvas.current_node;
+                const mutationObserver = new MutationObserver((mutations) => {
+                        const node = app.canvas.current_node;
 
-			if (!node || (node.comfyClass !== LORA_LOADER && node.comfyClass !== CHECKPOINT_LOADER)) {
-				return;
-			}
+                        const config = getNodeConfig(node);
+                        if (!node || !config) {
+                                return;
+                        }
 
 			for (const mutation of mutations) {
 				for (const removed of mutation.removedNodes) {
@@ -379,15 +404,14 @@ app.registerExtension({
 				for (const added of mutation.addedNodes) {
 					if (added.classList?.contains("litecontextmenu")) {
 						const overWidget = app.canvas.getWidgetAtCursor();
-						const type = getType(node);
-						if (overWidget?.name === getWidgetName(type)) {
-							requestAnimationFrame(() => {
-								// Bad hack to prevent showing on right click menu by checking for the filter input
-								if (!added.querySelector(".comfy-context-menu-filter")) return;
-								updateMenu(added, type);
-							});
-						}
-						return;
+                                                if (overWidget?.name === config.widgetName) {
+                                                        requestAnimationFrame(() => {
+                                                                // Bad hack to prevent showing on right click menu by checking for the filter input
+                                                                if (!added.querySelector(".comfy-context-menu-filter")) return;
+                                                                updateMenu(added, config);
+                                                        });
+                                                }
+                                                return;
 					}
 				}
 			}
@@ -395,20 +419,22 @@ app.registerExtension({
 		mutationObserver.observe(document.body, { childList: true, subtree: false });
 	},
 	async beforeRegisterNodeDef(nodeType, nodeData, app) {
-		const isCkpt = nodeData.name === CHECKPOINT_LOADER;
-		const isLora = nodeData.name === LORA_LOADER;
-		if (isCkpt || isLora) {
-			const onAdded = nodeType.prototype.onAdded;
-			nodeType.prototype.onAdded = function () {
-				onAdded?.apply(this, arguments);
-				const { widget: exampleList } = ComfyWidgets["COMBO"](this, "example", [[""], {}], app);
-				this.widgets.find((w) => w.name === "prompt").computeSize = () => [0, -4];
-				let exampleWidget;
+                const isCkpt = nodeData.name === CHECKPOINT_LOADER;
+                const isLora = nodeData.name === LORA_LOADER;
+                if (isCkpt || isLora) {
+                        const nodeConfig = getNodeConfig(nodeData.name) ?? getNodeConfig(nodeType);
+                        const onAdded = nodeType.prototype.onAdded;
+                        nodeType.prototype.onAdded = function () {
+                                onAdded?.apply(this, arguments);
+                                const { widget: exampleList } = ComfyWidgets["COMBO"](this, "example", [[""], {}], app);
+                                this.widgets.find((w) => w.name === "prompt").computeSize = () => [0, -4];
+                                let exampleWidget;
 
-				const get = async (route, suffix) => {
-					const url = encodeRFC3986URIComponent(`${getType(nodeType)}${suffix || ""}`);
-					return await api.fetchApi(`/pysssss/${route}/${url}`);
-				};
+                                const get = async (route, suffix) => {
+                                        const baseType = nodeConfig?.type ?? "";
+                                        const url = encodeRFC3986URIComponent(`${baseType}${suffix || ""}`);
+                                        return await api.fetchApi(`/pysssss/${route}/${url}`);
+                                };
 
 				const getExample = async () => {
 					if (exampleList.value === "[none]") {
@@ -499,33 +525,37 @@ app.registerExtension({
 					// No image is selected but one is hovered
 					img = this.imgs[this.overIndex];
 				}
-				if (img) {
-					const nodes = app.graph._nodes.filter((n) => n.comfyClass === LORA_LOADER || n.comfyClass === CHECKPOINT_LOADER);
-					if (nodes.length) {
-						options.unshift({
-							content: "Save as Preview",
-							submenu: {
-								options: nodes.map((n) => ({
-									content: n.widgets[0].value,
-									callback: async () => {
-										const url = new URL(img.src);
-										await api.fetchApi("/pysssss/save/" + encodeRFC3986URIComponent(`${getType(n)}/${n.widgets[0].value}`), {
-											method: "POST",
-											body: JSON.stringify({
-												filename: url.searchParams.get("filename"),
-												subfolder: url.searchParams.get("subfolder"),
-												type: url.searchParams.get("type"),
-											}),
-											headers: {
-												"content-type": "application/json",
-											},
-										});
-										loadImageList(getType(n));
-									},
-								})),
-							},
-						});
-					}
+                                        if (img) {
+                                                const nodes = app.graph._nodes.filter((n) => n.comfyClass === LORA_LOADER || n.comfyClass === CHECKPOINT_LOADER);
+                                                if (nodes.length) {
+                                                        options.unshift({
+                                                                content: "Save as Preview",
+                                                                submenu: {
+                                                                        options: nodes.map((n) => ({
+                                                                                content: n.widgets[0].value,
+                                                                                callback: async () => {
+                                                                                        const url = new URL(img.src);
+                                                                                        const targetConfig = getNodeConfig(n);
+                                                                                        const targetType = targetConfig?.type ?? "";
+                                                                                        await api.fetchApi("/pysssss/save/" + encodeRFC3986URIComponent(`${targetType}/${n.widgets[0].value}`), {
+                                                                                                method: "POST",
+                                                                                                body: JSON.stringify({
+                                                                                                        filename: url.searchParams.get("filename"),
+                                                                                                        subfolder: url.searchParams.get("subfolder"),
+                                                                                                        type: url.searchParams.get("type"),
+                                                                                                }),
+                                                                                                headers: {
+                                                                                                        "content-type": "application/json",
+                                                                                                },
+                                                                                        });
+                                                                                        if (targetConfig?.hasImages) {
+                                                                                                loadImageList(targetType);
+                                                                                        }
+                                                                                },
+                                                                        })),
+                                                                },
+                                                        });
+                                                }
 				}
 			}
 			return getExtraMenuOptions?.apply(this, arguments);
