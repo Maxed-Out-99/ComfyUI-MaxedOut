@@ -272,11 +272,28 @@ app.registerExtension({
 				const itemsSymbol = Symbol("items");
 
 				// First pass - organize items into folder structure
-				for (const item of items) {
-					const path = item.getAttribute("data-value").split(splitBy);
+                                for (const item of items) {
+                                        let path = item
+                                                .getAttribute("data-value")
+                                                .split(splitBy)
+                                                .filter((segment) => segment.length);
 
-					// Remove path from visible text
-					item.textContent = path[path.length - 1];
+                                        if (type === "latents") {
+                                                const latentsIndex = path.findIndex(
+                                                        (segment) => segment.toLowerCase() === "latents"
+                                                );
+                                                if (latentsIndex !== -1) {
+                                                        path = path.slice(latentsIndex + 1);
+                                                }
+                                        }
+
+                                        if (!path.length) {
+                                                item.remove();
+                                                continue;
+                                        }
+
+                                        // Remove path from visible text
+                                        item.textContent = path[path.length - 1];
 					if (path.length > 1) {
 						// Add the prefix path back in so it can be filtered on
 						const prefix = $el("span.pysssss-combo-prefix", {
