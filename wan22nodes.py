@@ -418,10 +418,19 @@ class LoadLatent_WithParams:
         sampler_name = self._coerce_enum(sampler_name, getattr(self.__class__, "_SAMPLERS_ENUM", ()))
         scheduler    = self._coerce_enum(scheduler,    getattr(self.__class__, "_SCHEDULERS_ENUM", ()))
 
-        folder_part = os.path.dirname(latent).replace("\\", "/")
+        def normalize_folder(part: str) -> str:
+            part = part.replace("\\", "/").strip("/")
+            if not part:
+                return ""
+            segments = [seg for seg in part.split("/") if seg]
+            if segments and segments[0].lower() == "latents":
+                segments = segments[1:]
+            return "/".join(segments)
+
+        folder_part = normalize_folder(os.path.dirname(latent))
         base_name   = os.path.basename(latent_path)
         clean_stem  = self._strip_counter(base_name)
-        prefix      = os.path.join(folder_part, clean_stem) if folder_part else clean_stem
+        prefix      = f"{folder_part}/{clean_stem}" if folder_part else clean_stem
 
         return (samples, pos, neg, int(steps), float(cfg), sampler_name, scheduler, int(end_at_step), float(shift), prefix)
 
