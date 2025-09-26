@@ -739,7 +739,7 @@ class Wan2_2EmptyLatentImageMXD:
         "Widescreen (16:9) 1280×720": (1280, 720),
         "Square (1:1) 960×960": (960, 960),
         "Standard (4:3) 960×720": (960, 720),
-        "Landscape (3:2) 1088×720": (1088, 720),
+        "Landscape (3:2) 1080×720": (1080, 720),
 
         "— 480p —": None,
         "Widescreen (16:9) 832×480": (832, 480),
