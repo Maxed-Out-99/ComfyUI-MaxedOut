@@ -3,16 +3,14 @@ import { ComfyWidgets } from "../../../scripts/widgets.js";
 import { $el } from "../../../scripts/ui.js";
 import { api } from "../../../scripts/api.js";
 
-const CHECKPOINT_LOADER = "CheckpointLoader|pysssss";
-const LORA_LOADER = "LoraLoader|pysssss";
 const LOAD_LATENT_WITH_PARAMS = "LoadLatent_WithParams";
+const LOAD_LATENT_I2V_MXD = "LoadLatent_I2V_MXD";
 const IMAGE_WIDTH = 384;
 const IMAGE_HEIGHT = 384;
 
 const NODE_CONFIGS = {
-        [CHECKPOINT_LOADER]: { type: "checkpoints", widgetName: "ckpt_name", hasImages: true },
-        [LORA_LOADER]: { type: "loras", widgetName: "lora_name", hasImages: true },
         [LOAD_LATENT_WITH_PARAMS]: { type: "latents", widgetName: "latent", hasImages: false },
+        [LOAD_LATENT_I2V_MXD]: { type: "latents", widgetName: "latent", hasImages: false },
 };
 
 const CONFIG_BY_TYPE = Object.fromEntries(
