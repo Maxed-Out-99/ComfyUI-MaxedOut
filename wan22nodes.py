@@ -231,8 +231,8 @@ class LoadLatent_WithParams:
     """
     TITLE = "Load Latent (With Params)"
     CATEGORY = "MXD/Latents"
-    RETURN_TYPES = ("LATENT", "STRING", "STRING", "INT", "FLOAT", "STRING", "STRING", "INT", "FLOAT", "STRING")
-    RETURN_NAMES = ("samples","positive","negative","steps","cfg","sampler_name","scheduler","end_at_step","shift","filename_prefix")
+    RETURN_TYPES = ("FLOAT", "STRING", "STRING", "LATENT", "INT", "FLOAT", "STRING", "STRING", "INT", "STRING")
+    RETURN_NAMES = ("shift","positive","negative","samples","steps","cfg","sampler_name","scheduler","end_at_step","filename_prefix")
     FUNCTION = "load"
 
     @classmethod
@@ -252,15 +252,15 @@ class LoadLatent_WithParams:
 
         # overwrite with live enums
         s.RETURN_TYPES = (
+            "FLOAT",   # shift
+            "STRING",  # positive
+            "STRING",  # negative
             "LATENT",
-            "STRING",
-            "STRING",
             "INT",
             "FLOAT",
             samplers_enum,
             schedulers_enum,
             "INT",
-            "FLOAT",   # shift
             "STRING",  # filename_prefix
         )
         s._SAMPLERS_ENUM = samplers_enum
@@ -432,7 +432,18 @@ class LoadLatent_WithParams:
         clean_stem  = self._strip_counter(base_name)
         prefix      = f"{folder_part}/{clean_stem}" if folder_part else clean_stem
 
-        return (samples, pos, neg, int(steps), float(cfg), sampler_name, scheduler, int(end_at_step), float(shift), prefix)
+        return (
+            float(shift),
+            pos,
+            neg,
+            samples,
+            int(steps),
+            float(cfg),
+            sampler_name,
+            scheduler,
+            int(end_at_step),
+            prefix,
+        )
 
     @classmethod
     def IS_CHANGED(s, latent):
@@ -457,8 +468,8 @@ class LoadLatents_FromFolder_WithParams:
     """
     TITLE = "Load Latents (Folder, With Params)"
     CATEGORY = "MXD/Latents"
-    RETURN_TYPES  = ("LATENT", "STRING", "STRING", "INT", "FLOAT", "STRING", "STRING", "INT", "FLOAT", "STRING")
-    RETURN_NAMES  = ("samples","positive","negative","steps","cfg","sampler_name","scheduler","end_at_step","shift","filename_prefix")
+    RETURN_TYPES  = ("FLOAT", "STRING", "STRING", "LATENT", "INT", "FLOAT", "STRING", "STRING", "INT", "STRING")
+    RETURN_NAMES  = ("shift","positive","negative","samples","steps","cfg","sampler_name","scheduler","end_at_step","filename_prefix")
     OUTPUT_IS_LIST = (True,     True,      True,      True,    True,   True,           True,        True,          True,   True)
     FUNCTION = "load_batch"
 
@@ -476,15 +487,15 @@ class LoadLatents_FromFolder_WithParams:
 
         # overwrite with live enums
         s.RETURN_TYPES = (
+            "FLOAT",   # shift
+            "STRING",  # positive
+            "STRING",  # negative
             "LATENT",
-            "STRING",
-            "STRING",
             "INT",
             "FLOAT",
             samplers_enum,
             schedulers_enum,
             "INT",
-            "FLOAT",   # shift
             "STRING",  # filename_prefix
         )
         s._SAMPLERS_ENUM = samplers_enum
@@ -629,10 +640,10 @@ class LoadLatents_FromFolder_WithParams:
         if not files:
             raise RuntimeError(f"[LoadLatents_FromFolder_WithParams] No .latent files found in '{base}'.")
 
+        shifts = []
         samples_list, positives, negatives = [], [], []
         steps_list, cfgs, samplers, schedulers, end_steps = [], [], [], [], []
         filename_prefixes = []
-        shifts = []
 
         for path in files:
             sample_dict, meta, _ = _load_latent_file(path)
@@ -662,6 +673,7 @@ class LoadLatents_FromFolder_WithParams:
 
 
             for sl in slices:
+                shifts.append(float(shift_val))
                 samples_list.append({"samples": sl})
                 positives.append(pos)
                 negatives.append(neg)
@@ -670,15 +682,40 @@ class LoadLatents_FromFolder_WithParams:
                 samplers.append(sampler_name)
                 schedulers.append(scheduler)
                 end_steps.append(int(end_at_step))
-                shifts.append(float(shift_val))
                 filename_prefixes.append(prefix)
 
         n = len(samples_list)
-        lens = [n, len(positives), len(negatives), len(steps_list), len(cfgs), len(samplers), len(schedulers), len(end_steps), len(shifts), len(filename_prefixes)]
-        if n == 0 or any(l != n for l in lens):
+        if (
+            n == 0
+            or len(shifts) != n
+            or any(
+                l != n
+                for l in (
+                    len(positives),
+                    len(negatives),
+                    len(steps_list),
+                    len(cfgs),
+                    len(samplers),
+                    len(schedulers),
+                    len(end_steps),
+                    len(filename_prefixes),
+                )
+            )
+        ):
             raise RuntimeError("[LoadLatents_FromFolder_WithParams] Internal length mismatch.")
 
-        return (samples_list, positives, negatives, steps_list, cfgs, samplers, schedulers, end_steps, shifts, filename_prefixes)
+        return (
+            shifts,
+            positives,
+            negatives,
+            samples_list,
+            steps_list,
+            cfgs,
+            samplers,
+            schedulers,
+            end_steps,
+            filename_prefixes,
+        )
 
 
 # ---------- Empty latent image generator (for video nodes) ----------
@@ -923,9 +960,30 @@ class LoadLatent_I2V_MXD(LoadLatent_WithParams):
     CATEGORY = "MXD/Latents (I2V)"
     FUNCTION = "load"
 
-    # Base tuple + two extra
-    RETURN_TYPES = LoadLatent_WithParams.RETURN_TYPES + ("CONDITIONING", "CONDITIONING")
-    RETURN_NAMES = LoadLatent_WithParams.RETURN_NAMES + ("positive_conditioning", "negative_conditioning")
+    RETURN_TYPES = (
+        "FLOAT",         # shift
+        "CONDITIONING",  # positive conditioning
+        "CONDITIONING",  # negative conditioning
+        "LATENT",
+        "INT",
+        "FLOAT",
+        "STRING",
+        "STRING",
+        "INT",
+        "STRING",
+    )
+    RETURN_NAMES = (
+        "shift",
+        "positive",
+        "negative",
+        "samples",
+        "steps",
+        "cfg",
+        "sampler_name",
+        "scheduler",
+        "end_at_step",
+        "filename_prefix",
+    )
 
     @classmethod
     def INPUT_TYPES(s):
@@ -942,19 +1000,18 @@ class LoadLatent_I2V_MXD(LoadLatent_WithParams):
         schedulers_enum = ks_inputs.get("scheduler",    ("STRING",))[0]
 
         # rebuild RETURN_TYPES on THIS CLASS so ports wire correctly
-        base_rts = (
+        s.RETURN_TYPES = (
+            "FLOAT",         # shift
+            "CONDITIONING",  # positive conditioning
+            "CONDITIONING",  # negative conditioning
             "LATENT",
-            "STRING",
-            "STRING",
             "INT",
             "FLOAT",
             samplers_enum,
             schedulers_enum,
             "INT",
-            "FLOAT",   # shift
             "STRING",  # filename_prefix
         )
-        s.RETURN_TYPES = base_rts + ("CONDITIONING", "CONDITIONING")
         s._SAMPLERS_ENUM   = samplers_enum
         s._SCHEDULERS_ENUM = schedulers_enum
 
@@ -977,7 +1034,7 @@ class LoadLatent_I2V_MXD(LoadLatent_WithParams):
         return LoadLatent_WithParams.VALIDATE_INPUTS(latent)
 
     def load(self, latent):
-        # Use base loader to get (samples, pos, neg, steps, cfg, sampler_name, scheduler, end_at_step, shift, prefix)
+        # Use base loader to get shift + metadata
         base_tuple = super().load(latent)
 
         # sidecar conditioning
@@ -992,7 +1049,31 @@ class LoadLatent_I2V_MXD(LoadLatent_WithParams):
             except Exception:
                 positive_conditioning, negative_conditioning = [], []
 
-        return base_tuple + (positive_conditioning, negative_conditioning)
+        (
+            shift,
+            _pos_text,
+            _neg_text,
+            samples,
+            steps,
+            cfg,
+            sampler_name,
+            scheduler,
+            end_at_step,
+            prefix,
+        ) = base_tuple
+
+        return (
+            shift,
+            positive_conditioning,
+            negative_conditioning,
+            samples,
+            steps,
+            cfg,
+            sampler_name,
+            scheduler,
+            end_at_step,
+            prefix,
+        )
 
 
 
