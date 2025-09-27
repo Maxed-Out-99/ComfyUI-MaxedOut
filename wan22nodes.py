@@ -1118,39 +1118,70 @@ class WanImageToVideoMXD:
 
     # ---------- helpers ----------
     @staticmethod
-    def _round16(x: float) -> int:
-        x = int(round(x / 16.0) * 16)
-        return max(16, x)
-
-    @staticmethod
     def _buckets_for_mode(mode: str):
         m = (mode or "Auto").strip().lower()
         if m == "720p": return BUCKETS_720P
         if m == "480p": return BUCKETS_480P
         return ALL_BUCKETS
 
+    @staticmethod
+    def _round16(x: float) -> int:
+        x = int(round(x / 16.0) * 16)
+        return max(16, x)
+
     @classmethod
-    def _closest_bucket_ratio(cls, img_w: int, img_h: int, mode: str):
-        ar = img_w / max(1, img_h)
+    def _best_bucket_by_min_scale(cls, img_w: int, img_h: int, mode: str):
+        """Fit-inside strategy for I2V:
+        - s = min(bw/img_w, bh/img_h)  (uniform scale to fit inside preset)
+        - clamp s <= 1.0 (no upscaling)
+        - choose bucket that MAXIMIZES s (least shrink)
+        - tie-breaker: smaller AR difference to the input
+        Returns (bw, bh, s).
+        """
         buckets = cls._buckets_for_mode(mode)
-        return min(buckets, key=lambda wh: abs((wh[0] / wh[1]) - ar))
+        if not buckets:
+            return None
+
+        ar_in = img_w / max(1, img_h)
+
+        best = None
+        best_key = (-1.0, float("inf"))  # maximize s, then minimize ar_diff
+
+        for bw, bh in buckets:
+            s_raw = min(bw / max(1, img_w), bh / max(1, img_h))
+            s = min(1.0, s_raw)  # never upscale for I2V
+            ar_diff = abs((bw / bh) - ar_in)
+            key = (s, -ar_diff)  # larger s preferred; for ties, smaller ar_diff
+
+            if key > best_key:
+                best_key = key
+                best = (bw, bh, s)
+
+        return best  # (bw, bh, s)
 
     @classmethod
     def _bucketed_size_no_pad(cls, img_w: int, img_h: int, mode: str):
-        bw, bh = cls._closest_bucket_ratio(img_w, img_h, mode)
-        img_short    = min(img_w, img_h)
-        bucket_short = min(bw, bh)
-        s  = bucket_short / max(1, img_short)
+        """Compute target (w,h) by fit-inside selection, then /16 & clamp."""
+        best = cls._best_bucket_by_min_scale(img_w, img_h, mode)
+        if best is None:
+            # Fallback: just round original to multiples of 16 (rare)
+            tw, th = cls._round16(img_w), cls._round16(img_h)
+            if tw > nodes.MAX_RESOLUTION or th > nodes.MAX_RESOLUTION:
+                s2 = min(nodes.MAX_RESOLUTION / tw, nodes.MAX_RESOLUTION / th)
+                tw, th = cls._round16(tw * s2), cls._round16(th * s2)
+            return tw, th
 
+        _, _, s = best
         tw = cls._round16(img_w * s)
         th = cls._round16(img_h * s)
 
-        # Clamp to MAX_RESOLUTION if needed (preserving AR)
+        # Safety clamp preserving AR (should rarely trigger)
         if tw > nodes.MAX_RESOLUTION or th > nodes.MAX_RESOLUTION:
             s2 = min(nodes.MAX_RESOLUTION / tw, nodes.MAX_RESOLUTION / th)
             tw = cls._round16(tw * s2)
             th = cls._round16(th * s2)
         return tw, th
+    
     # --------------------------------
 
     def run(self, positive, negative, vae, scale_mode, length, batch_size, clip_vision_output=None, start_image=None):
@@ -1206,7 +1237,6 @@ class WanImageToVideoMXD:
             negative = node_helpers.conditioning_set_values(negative, {"clip_vision_output": clip_vision_output})
 
         return (positive, negative, {"samples": latent})
-
 
 
 # ---------- Node registration ----------
