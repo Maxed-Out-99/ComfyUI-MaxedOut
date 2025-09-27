@@ -10,6 +10,8 @@ import comfy.utils
 from nodes import KSamplerAdvanced
 import nodes
 import comfy.model_management
+import node_helpers
+from comfy_api.latest import ComfyExtension, io
 
 
 # ---------- SaveLatent (Comfy-only; saves into input/latents) ----------
@@ -1074,6 +1076,136 @@ class LoadLatent_I2V_MXD(LoadLatent_WithParams):
             end_at_step,
             prefix,
         )
+    
+# --- Bucketing sets (no-crop/no-pad) ---
+BUCKETS_720P = [(1280,720),(960,960),(960,720),(1088,720)]
+BUCKETS_480P = [(832,480),(640,640),(640,480),(720,480)]
+ALL_BUCKETS   = BUCKETS_720P + BUCKETS_480P
+
+class WanImageToVideoMXD:
+    """
+    WAN 2.2 Image → Video (MXD)
+    - Auto-buckets start_image by closest aspect ratio.
+    - Scale modes: Auto, 720p-only, 480p-only.
+    - No crop, no pad; proportional resize; /16 rounding; latent sized accordingly.
+    """
+
+    TITLE     = "WAN Image to Video MXD"
+    CATEGORY  = "conditioning/video_models"
+    DESCRIPTION = "Image-to-video conditioning with simple bucketed scaling (Auto / 720p / 480p)."
+
+    RETURN_TYPES = ("CONDITIONING", "CONDITIONING", "LATENT")
+    RETURN_NAMES = ("positive", "negative", "latent")
+    FUNCTION     = "run"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        # Dropdowns work here (classic API)
+        return {
+            "required": {
+                "positive": ("CONDITIONING",),
+                "negative": ("CONDITIONING",),
+                "vae":      ("VAE",),
+                "scale_mode": (["Auto", "720p", "480p"], {"default": "Auto", "tooltip": "Limit bucketing to Auto/720p-only/480p-only."}),
+                "length":   ("INT", {"default": 81, "min": 1, "max": 16384, "step": 4}),
+                "batch_size": ("INT", {"default": 1, "min": 1, "max": 4096}),
+            },
+            "optional": {
+                "clip_vision_output": ("CLIP_VISION_OUTPUT",),
+                "start_image": ("IMAGE",),
+            }
+        }
+
+    # ---------- helpers ----------
+    @staticmethod
+    def _round16(x: float) -> int:
+        x = int(round(x / 16.0) * 16)
+        return max(16, x)
+
+    @staticmethod
+    def _buckets_for_mode(mode: str):
+        m = (mode or "Auto").strip().lower()
+        if m == "720p": return BUCKETS_720P
+        if m == "480p": return BUCKETS_480P
+        return ALL_BUCKETS
+
+    @classmethod
+    def _closest_bucket_ratio(cls, img_w: int, img_h: int, mode: str):
+        ar = img_w / max(1, img_h)
+        buckets = cls._buckets_for_mode(mode)
+        return min(buckets, key=lambda wh: abs((wh[0] / wh[1]) - ar))
+
+    @classmethod
+    def _bucketed_size_no_pad(cls, img_w: int, img_h: int, mode: str):
+        bw, bh = cls._closest_bucket_ratio(img_w, img_h, mode)
+        img_short    = min(img_w, img_h)
+        bucket_short = min(bw, bh)
+        s  = bucket_short / max(1, img_short)
+
+        tw = cls._round16(img_w * s)
+        th = cls._round16(img_h * s)
+
+        # Clamp to MAX_RESOLUTION if needed (preserving AR)
+        if tw > nodes.MAX_RESOLUTION or th > nodes.MAX_RESOLUTION:
+            s2 = min(nodes.MAX_RESOLUTION / tw, nodes.MAX_RESOLUTION / th)
+            tw = cls._round16(tw * s2)
+            th = cls._round16(th * s2)
+        return tw, th
+    # --------------------------------
+
+    def run(self, positive, negative, vae, scale_mode, length, batch_size, clip_vision_output=None, start_image=None):
+        # Decide target size
+        if start_image is not None:
+            # start_image: (T, H, W, C)
+            _, ih, iw, _ = start_image.shape
+            width, height = self._bucketed_size_no_pad(iw, ih, scale_mode)
+        else:
+            # Keep sensible defaults per mode when start_image is absent
+            m = (scale_mode or "Auto").strip().lower()
+            if m == "720p":
+                width, height = 1280, 720
+            elif m == "480p":
+                width, height = 832, 480
+            else:
+                width, height = 832, 480
+
+        latent = torch.zeros(
+            [batch_size, 16, ((length - 1) // 4) + 1, height // 8, width // 8],
+            device=comfy.model_management.intermediate_device()
+        )
+
+        # Encode start image (optional)
+        if start_image is not None:
+            # No cropping: sizes already preserve AR; "center" is safe across builds
+            start_image = comfy.utils.common_upscale(
+                start_image[:length].movedim(-1, 1),
+                width, height,
+                "bilinear", "center"
+            ).movedim(1, -1)
+
+            image = torch.ones((length, height, width, start_image.shape[-1]),
+                               device=start_image.device, dtype=start_image.dtype) * 0.5
+            image[:start_image.shape[0]] = start_image
+
+            concat_latent_image = vae.encode(image[:, :, :, :3])
+            mask = torch.ones(
+                (1, 1, latent.shape[2], concat_latent_image.shape[-2], concat_latent_image.shape[-1]),
+                device=start_image.device, dtype=start_image.dtype
+            )
+            mask[:, :, :((start_image.shape[0] - 1) // 4) + 1] = 0.0
+
+            positive = node_helpers.conditioning_set_values(positive, {
+                "concat_latent_image": concat_latent_image, "concat_mask": mask
+            })
+            negative = node_helpers.conditioning_set_values(negative, {
+                "concat_latent_image": concat_latent_image, "concat_mask": mask
+            })
+
+        if clip_vision_output is not None:
+            positive = node_helpers.conditioning_set_values(positive, {"clip_vision_output": clip_vision_output})
+            negative = node_helpers.conditioning_set_values(negative, {"clip_vision_output": clip_vision_output})
+
+        return (positive, negative, {"samples": latent})
 
 
 
@@ -1086,6 +1218,7 @@ NODE_CLASS_MAPPINGS = {
     "wan22EmptyHunyuanLatentVideoMXD": wan22EmptyHunyuanLatentVideoMXD,
     "SaveLatent_I2V_MXD": SaveLatent_I2V_MXD,
     "LoadLatent_I2V_MXD": LoadLatent_I2V_MXD,
+    "WanImageToVideoMXD": WanImageToVideoMXD,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -1096,4 +1229,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "wan22EmptyHunyuanLatentVideoMXD": "WAN2.2 Empty Latent Video MXD",
     "SaveLatent_I2V_MXD": "Save Latent I2V MXD",
     "LoadLatent_I2V_MXD": "Load Latent I2V MXD",
+    "WanImageToVideoMXD": "WAN Image to Video MXD",
 }
