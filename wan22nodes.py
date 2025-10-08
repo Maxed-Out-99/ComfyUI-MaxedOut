@@ -1078,21 +1078,20 @@ class LoadLatent_I2V_MXD(LoadLatent_WithParams):
         )
     
 # --- Bucketing sets (no-crop/no-pad) ---
-BUCKETS_720P = [(1280,720),(960,960),(960,720),(1088,720)]
-BUCKETS_480P = [(832,480),(640,640),(640,480),(720,480)]
-ALL_BUCKETS   = BUCKETS_720P + BUCKETS_480P
+BUCKETS_480P = [(832,480), (640,640), (640,480), (720,480)]
+ALL_BUCKETS  = BUCKETS_480P
 
 class WanImageToVideoMXD:
     """
     WAN 2.2 Image → Video (MXD)
     - Auto-buckets start_image by closest aspect ratio.
-    - Scale modes: Auto, 720p-only, 480p-only.
-    - No crop, no pad; proportional resize; /16 rounding; latent sized accordingly.
+    - Fixed 480p-only scaling (no crop, no pad).
+    - Proportional resize; /16 rounding; latent sized accordingly.
     """
 
-    TITLE     = "WAN Image to Video MXD"
-    CATEGORY  = "conditioning/video_models"
-    DESCRIPTION = "Image-to-video conditioning with simple bucketed scaling (Auto / 720p / 480p)."
+    TITLE       = "WAN Image to Video MXD"
+    CATEGORY    = "conditioning/video_models"
+    DESCRIPTION = "Image-to-video conditioning with simple 480p bucketed scaling (no crop, no pad)."
 
     RETURN_TYPES = ("CONDITIONING", "CONDITIONING", "LATENT")
     RETURN_NAMES = ("positive", "negative", "latent")
@@ -1100,13 +1099,11 @@ class WanImageToVideoMXD:
 
     @classmethod
     def INPUT_TYPES(cls):
-        # Dropdowns work here (classic API)
         return {
             "required": {
                 "positive": ("CONDITIONING",),
                 "negative": ("CONDITIONING",),
                 "vae":      ("VAE",),
-                "scale_mode": (["Auto", "720p", "480p"], {"default": "Auto", "tooltip": "Limit bucketing to Auto/720p-only/480p-only."}),
                 "length":   ("INT", {"default": 81, "min": 1, "max": 16384, "step": 4}),
                 "batch_size": ("INT", {"default": 1, "min": 1, "max": 4096}),
             },
@@ -1118,11 +1115,8 @@ class WanImageToVideoMXD:
 
     # ---------- helpers ----------
     @staticmethod
-    def _buckets_for_mode(mode: str):
-        m = (mode or "Auto").strip().lower()
-        if m == "720p": return BUCKETS_720P
-        if m == "480p": return BUCKETS_480P
-        return ALL_BUCKETS
+    def _buckets_for_mode():
+        return BUCKETS_480P
 
     @staticmethod
     def _round16(x: float) -> int:
@@ -1130,7 +1124,7 @@ class WanImageToVideoMXD:
         return max(16, x)
 
     @classmethod
-    def _best_bucket_by_min_scale(cls, img_w: int, img_h: int, mode: str):
+    def _best_bucket_by_min_scale(cls, img_w: int, img_h: int):
         """Fit-inside strategy for I2V:
         - s = min(bw/img_w, bh/img_h)  (uniform scale to fit inside preset)
         - clamp s <= 1.0 (no upscaling)
@@ -1138,7 +1132,7 @@ class WanImageToVideoMXD:
         - tie-breaker: smaller AR difference to the input
         Returns (bw, bh, s).
         """
-        buckets = cls._buckets_for_mode(mode)
+        buckets = cls._buckets_for_mode()
         if not buckets:
             return None
 
@@ -1160,9 +1154,9 @@ class WanImageToVideoMXD:
         return best  # (bw, bh, s)
 
     @classmethod
-    def _bucketed_size_no_pad(cls, img_w: int, img_h: int, mode: str):
+    def _bucketed_size_no_pad(cls, img_w: int, img_h: int):
         """Compute target (w,h) by fit-inside selection, then /16 & clamp."""
-        best = cls._best_bucket_by_min_scale(img_w, img_h, mode)
+        best = cls._best_bucket_by_min_scale(img_w, img_h)
         if best is None:
             # Fallback: just round original to multiples of 16 (rare)
             tw, th = cls._round16(img_w), cls._round16(img_h)
@@ -1181,24 +1175,18 @@ class WanImageToVideoMXD:
             tw = cls._round16(tw * s2)
             th = cls._round16(th * s2)
         return tw, th
-    
+
     # --------------------------------
 
-    def run(self, positive, negative, vae, scale_mode, length, batch_size, clip_vision_output=None, start_image=None):
+    def run(self, positive, negative, vae, length, batch_size, clip_vision_output=None, start_image=None):
         # Decide target size
         if start_image is not None:
             # start_image: (T, H, W, C)
             _, ih, iw, _ = start_image.shape
-            width, height = self._bucketed_size_no_pad(iw, ih, scale_mode)
+            width, height = self._bucketed_size_no_pad(iw, ih)
         else:
-            # Keep sensible defaults per mode when start_image is absent
-            m = (scale_mode or "Auto").strip().lower()
-            if m == "720p":
-                width, height = 1280, 720
-            elif m == "480p":
-                width, height = 832, 480
-            else:
-                width, height = 832, 480
+            # Default when start_image is absent
+            width, height = 832, 480
 
         latent = torch.zeros(
             [batch_size, 16, ((length - 1) // 4) + 1, height // 8, width // 8],
@@ -1237,7 +1225,6 @@ class WanImageToVideoMXD:
             negative = node_helpers.conditioning_set_values(negative, {"clip_vision_output": clip_vision_output})
 
         return (positive, negative, {"samples": latent})
-
 
 # ---------- Node registration ----------
 NODE_CLASS_MAPPINGS = {
