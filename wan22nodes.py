@@ -14,6 +14,7 @@ import node_helpers
 from comfy_api.latest import ComfyExtension, io
 
 
+
 # ---------- SaveLatent (Comfy-only; saves into input/latents) ----------
 class SaveLatentMXD:
     DESCRIPTION = """
@@ -739,15 +740,10 @@ class Wan2_2EmptyLatentImageMXD:
     RESOLUTIONS = {
         "— 720p —": None,
         "Widescreen (16:9) 1280×720": (1280, 720),
-        "Square (1:1) 960×960": (960, 960),
-        "Standard (4:3) 960×720": (960, 720),
-        "Landscape (3:2) 1080×720": (1080, 720),
 
         "— 480p —": None,
         "Widescreen (16:9) 832×480": (832, 480),
-        "Square (1:1) 640×640": (640, 640),
-        "Standard (4:3) 640×480": (640, 480),
-        "Landscape (3:2) 720×480": (720, 480),
+        "Square (1:1) 624×624": (624, 624),
     }
 
     RETURN_TYPES = ("LATENT",)
@@ -800,25 +796,21 @@ class Wan2_2EmptyLatentImageMXD:
 class wan22EmptyHunyuanLatentVideoMXD:
     """
     Exactly like core EmptyHunyuanLatentVideo, but width/height are replaced
-    with resolution presets and a vertical toggle.
+    with valid WAN 2.2 resolution presets and a vertical toggle.
     """
 
     RETURN_TYPES = ("LATENT",)
     FUNCTION = "generate"
     CATEGORY = "latent/video"
 
+    # ✅ Cleaned, WAN 2.2–accurate presets
     RESOLUTIONS = {
         "— 720p —": None,
         "Widescreen (16:9) 1280×720": (1280, 720),
-        "Square (1:1) 960×960": (960, 960),
-        "Standard (4:3) 960×720": (960, 720),
-        "Landscape (3:2) 1088×720": (1088, 720),
 
         "— 480p —": None,
         "Widescreen (16:9) 832×480": (832, 480),
-        "Square (1:1) 640×640": (640, 640),
-        "Standard (4:3) 640×480": (640, 480),
-        "Landscape (3:2) 720×480": (720, 480),
+        "Square (1:1) 624×624": (624, 624),
     }
 
     @classmethod
@@ -854,14 +846,13 @@ class wan22EmptyHunyuanLatentVideoMXD:
             w, h = h, w
 
         # identical to core behavior:
-        # channels=16, time=((length-1)//4)+1, spatial downsample /8
         t = ((length - 1) // 4) + 1
         latent = torch.zeros(
             [batch_size, 16, t, h // 8, w // 8],
             device=comfy.model_management.intermediate_device()
         )
         return ({"samples": latent},)
-    
+
 # ---------- I2V-specific latent save/load (sidecar conditioning; subclassed loader) ----------
 
 class SaveLatent_I2V_MXD:
@@ -1077,21 +1068,67 @@ class LoadLatent_I2V_MXD(LoadLatent_WithParams):
             prefix,
         )
     
-# --- Bucketing sets (no-crop/no-pad) ---
-BUCKETS_480P = [(832,480), (640,640), (640,480), (720,480)]
-ALL_BUCKETS  = BUCKETS_480P
+# ---- Canonical WAN 2.2 buckets ----
+BUCKETS_480 = [(832,480), (480,832), (624,624)]  # 16:9, 9:16, 1:1
+BUCKETS_720 = [(1280,720), (720,1280)]           # 16:9, 9:16
+
+def _round16(x: float) -> int:
+    x = int(round(x / 16.0) * 16)
+    return max(16, x)
+
+def _safe_hw(w: int, h: int):
+    w = max(16, min(w, nodes.MAX_RESOLUTION))
+    h = max(16, min(h, nodes.MAX_RESOLUTION))
+    return w, h
+
+def _ar(w, h): return w / max(1, h)
+
+def _closest_bucket(img_w, img_h, bucket_list, cover=False):
+    """Pick the best (bw,bh) from bucket_list for this image."""
+    if not bucket_list:
+        return None
+    in_ar = _ar(img_w, img_h)
+    best = None
+    best_key = (float("inf"), 0)
+    for bw, bh in bucket_list:
+        s = max(bw / img_w, bh / img_h) if cover else min(bw / img_w, bh / img_h)
+        ar_diff = abs(_ar(bw, bh) - in_ar)
+        key = (abs(1.0 - s), ar_diff)
+        if key < best_key:
+            best_key, best = key, (bw, bh)
+    return best
+
+def _resize_then_center_crop(img, out_w, out_h):
+    """Resize to cover then center-crop."""
+    t, ih, iw, c = img.shape
+    s = max(out_w / iw, out_h / ih)
+    tw, th = _round16(int(iw * s)), _round16(int(ih * s))
+    tmp = comfy.utils.common_upscale(img.movedim(-1, 1), tw, th, "bilinear", "center").movedim(1, -1)
+    y0, x0 = max(0, (th - out_h)//2), max(0, (tw - out_w)//2)
+    return tmp[:, y0:y0+out_h, x0:x0+out_w, :]
+
+def _resize_fit_inside(img, out_w, out_h):
+    """Resize to fit inside target while keeping AR."""
+    t, ih, iw, c = img.shape
+    s = min(out_w / iw, out_h / ih)
+    tw, th = _round16(int(iw * s)), _round16(int(ih * s))
+    tw, th = _safe_hw(tw, th)
+    resized = comfy.utils.common_upscale(img.movedim(-1, 1), tw, th, "bilinear", "center").movedim(1, -1)
+    return resized, tw, th
+
 
 class WanImageToVideoMXD:
     """
     WAN 2.2 Image → Video (MXD)
-    - Auto-buckets start_image by closest aspect ratio.
-    - Fixed 480p-only scaling (no crop, no pad).
-    - Proportional resize; /16 rounding; latent sized accordingly.
+
+    - Auto chooses 480p or 720p based on AR and input size.
+    - Optional Crop-to-Fit (off by default).
+    - Automatically scales image down or up to closest bucket.
     """
 
     TITLE       = "WAN Image to Video MXD"
     CATEGORY    = "conditioning/video_models"
-    DESCRIPTION = "Image-to-video conditioning with simple 480p bucketed scaling (no crop, no pad)."
+    DESCRIPTION = "Image-to-video conditioning with Auto/480p/720p scaling and optional crop-to-fit."
 
     RETURN_TYPES = ("CONDITIONING", "CONDITIONING", "LATENT")
     RETURN_NAMES = ("positive", "negative", "latent")
@@ -1106,6 +1143,8 @@ class WanImageToVideoMXD:
                 "vae":      ("VAE",),
                 "length":   ("INT", {"default": 81, "min": 1, "max": 16384, "step": 4}),
                 "batch_size": ("INT", {"default": 1, "min": 1, "max": 4096}),
+                "tier": (["Auto", "480p", "720p"], {"default": "Auto"}),
+                "crop_to_fit": ("BOOLEAN", {"default": False, "label_on": "Crop to Fit", "label_off": "Fit Inside"}),
             },
             "optional": {
                 "clip_vision_output": ("CLIP_VISION_OUTPUT",),
@@ -1113,105 +1152,58 @@ class WanImageToVideoMXD:
             }
         }
 
-    # ---------- helpers ----------
+    # -------- internals --------
     @staticmethod
-    def _buckets_for_mode():
-        return BUCKETS_480P
+    def _pick_bucket(img_w, img_h, tier, crop_to_fit):
+        in_ar = _ar(img_w, img_h)
 
-    @staticmethod
-    def _round16(x: float) -> int:
-        x = int(round(x / 16.0) * 16)
-        return max(16, x)
+        if tier == "480p":
+            return _closest_bucket(img_w, img_h, BUCKETS_480, crop_to_fit)
+        if tier == "720p":
+            return _closest_bucket(img_w, img_h, BUCKETS_720, crop_to_fit)
 
-    @classmethod
-    def _best_bucket_by_min_scale(cls, img_w: int, img_h: int):
-        """Fit-inside strategy for I2V:
-        - s = min(bw/img_w, bh/img_h)  (uniform scale to fit inside preset)
-        - clamp s <= 1.0 (no upscaling)
-        - choose bucket that MAXIMIZES s (least shrink)
-        - tie-breaker: smaller AR difference to the input
-        Returns (bw, bh, s).
-        """
-        buckets = cls._buckets_for_mode()
-        if not buckets:
-            return None
+        # Auto: choose smartly
+        if 0.95 <= in_ar <= 1.05:  # square-ish → 480p 624x624
+            return (624, 624)
+        # prefer 720p for wider or portrait inputs
+        return _closest_bucket(img_w, img_h, BUCKETS_720 if max(img_w, img_h) > 720 else BUCKETS_480, crop_to_fit)
 
-        ar_in = img_w / max(1, img_h)
+    # -------- main --------
+    def run(self, positive, negative, vae, length, batch_size,
+            tier="Auto", crop_to_fit=False, clip_vision_output=None, start_image=None):
 
-        best = None
-        best_key = (-1.0, float("inf"))  # maximize s, then minimize ar_diff
-
-        for bw, bh in buckets:
-            s_raw = min(bw / max(1, img_w), bh / max(1, img_h))
-            s = min(1.0, s_raw)  # never upscale for I2V
-            ar_diff = abs((bw / bh) - ar_in)
-            key = (s, -ar_diff)  # larger s preferred; for ties, smaller ar_diff
-
-            if key > best_key:
-                best_key = key
-                best = (bw, bh, s)
-
-        return best  # (bw, bh, s)
-
-    @classmethod
-    def _bucketed_size_no_pad(cls, img_w: int, img_h: int):
-        """Compute target (w,h) by fit-inside selection, then /16 & clamp."""
-        best = cls._best_bucket_by_min_scale(img_w, img_h)
-        if best is None:
-            # Fallback: just round original to multiples of 16 (rare)
-            tw, th = cls._round16(img_w), cls._round16(img_h)
-            if tw > nodes.MAX_RESOLUTION or th > nodes.MAX_RESOLUTION:
-                s2 = min(nodes.MAX_RESOLUTION / tw, nodes.MAX_RESOLUTION / th)
-                tw, th = cls._round16(tw * s2), cls._round16(th * s2)
-            return tw, th
-
-        _, _, s = best
-        tw = cls._round16(img_w * s)
-        th = cls._round16(img_h * s)
-
-        # Safety clamp preserving AR (should rarely trigger)
-        if tw > nodes.MAX_RESOLUTION or th > nodes.MAX_RESOLUTION:
-            s2 = min(nodes.MAX_RESOLUTION / tw, nodes.MAX_RESOLUTION / th)
-            tw = cls._round16(tw * s2)
-            th = cls._round16(th * s2)
-        return tw, th
-
-    # --------------------------------
-
-    def run(self, positive, negative, vae, length, batch_size, clip_vision_output=None, start_image=None):
-        # Decide target size
-        if start_image is not None:
-            # start_image: (T, H, W, C)
-            _, ih, iw, _ = start_image.shape
-            width, height = self._bucketed_size_no_pad(iw, ih)
+        # Default when no start image
+        if start_image is None:
+            final_w, final_h = 832, 480
         else:
-            # Default when start_image is absent
-            width, height = 832, 480
+            _, ih, iw, _ = start_image.shape
+            bw, bh = self._pick_bucket(iw, ih, tier, crop_to_fit)
+            final_w, final_h = _safe_hw(_round16(bw), _round16(bh))
 
+        # Latent setup
+        t = ((length - 1) // 4) + 1
         latent = torch.zeros(
-            [batch_size, 16, ((length - 1) // 4) + 1, height // 8, width // 8],
+            [batch_size, 16, t, final_h // 8, final_w // 8],
             device=comfy.model_management.intermediate_device()
         )
 
-        # Encode start image (optional)
+        # Encode start image
         if start_image is not None:
-            # No cropping: sizes already preserve AR; "center" is safe across builds
-            start_image = comfy.utils.common_upscale(
-                start_image[:length].movedim(-1, 1),
-                width, height,
-                "bilinear", "center"
-            ).movedim(1, -1)
+            if crop_to_fit:
+                framed = _resize_then_center_crop(start_image[:length], final_w, final_h)
+            else:
+                resized, rw, rh = _resize_fit_inside(start_image[:length], final_w, final_h)
+                framed = torch.ones((resized.shape[0], final_h, final_w, resized.shape[-1]),
+                                    device=resized.device, dtype=resized.dtype) * 0.5
+                y0, x0 = (final_h - rh)//2, (final_w - rw)//2
+                framed[:, y0:y0+rh, x0:x0+rw, :] = resized
 
-            image = torch.ones((length, height, width, start_image.shape[-1]),
-                               device=start_image.device, dtype=start_image.dtype) * 0.5
-            image[:start_image.shape[0]] = start_image
-
-            concat_latent_image = vae.encode(image[:, :, :, :3])
+            concat_latent_image = vae.encode(framed[:, :, :, :3])
             mask = torch.ones(
                 (1, 1, latent.shape[2], concat_latent_image.shape[-2], concat_latent_image.shape[-1]),
-                device=start_image.device, dtype=start_image.dtype
+                device=framed.device, dtype=framed.dtype
             )
-            mask[:, :, :((start_image.shape[0] - 1) // 4) + 1] = 0.0
+            mask[:, :, :((framed.shape[0] - 1) // 4) + 1] = 0.0
 
             positive = node_helpers.conditioning_set_values(positive, {
                 "concat_latent_image": concat_latent_image, "concat_mask": mask
