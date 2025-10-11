@@ -1,0 +1,48 @@
+# === Python / ComfyUI node ignores ===
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.safetensors
+*.ckpt
+*.bin
+*.pth
+*.pt
+*.gguf
+*.log
+
+# Jupyter / temp / OS stuff
+.ipynb_checkpoints/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Node metadata or local testing
+test_*.json
+workflow_*.json
+debug/
+temp/
+cache/
+outputs/
+inputs/
+runs/
+logs/
+
+# ComfyUI local cache & configs
+ComfyUI/output/
+ComfyUI/input/
+ComfyUI/cache/
+ComfyUI/temp/
+ComfyUI/custom_nodes/__pycache__/
+ComfyUI/custom_nodes/*/venv/
+ComfyUI/models/
+
+# Virtual environments
+venv/
+env/
+.env
+.venv
+
+# Editors / IDEs
+.vscode/
+.idea/
