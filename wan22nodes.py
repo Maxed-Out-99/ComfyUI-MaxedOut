@@ -11,7 +11,8 @@ from nodes import KSamplerAdvanced
 import nodes
 import comfy.model_management
 import node_helpers
-from comfy_api.latest import ComfyExtension, io
+from comfy_api.latest import ComfyExtension, io, ui
+import imageio.v3 as iio
 
 
 
@@ -245,7 +246,7 @@ class LoadLatent_WithParams:
 
         files = glob.glob(os.path.join(latents_root, "**", "*.latent"), recursive=True)
         files.sort()
-        options = [os.path.relpath(f, folder_paths.get_input_directory()).replace(os.sep, "/") for f in files]
+        options = [os.path.relpath(f, latents_root).replace(os.sep, "/") for f in files]
 
         # live enums from KSamplerAdvanced so values wire cleanly
         from nodes import KSamplerAdvanced
@@ -400,7 +401,7 @@ class LoadLatent_WithParams:
         return 5.0
 
     def load(self, latent):
-        latent_path = folder_paths.get_annotated_filepath(latent)
+        latent_path = folder_paths.get_annotated_filepath(f"latents/{latent}")
         sample_dict, meta, _ = _load_latent_file(latent_path)
         t = sample_dict["samples"]
 
@@ -450,9 +451,9 @@ class LoadLatent_WithParams:
 
     @classmethod
     def IS_CHANGED(s, latent):
-        p = folder_paths.get_annotated_filepath(latent)
+        p = folder_paths.get_annotated_filepath(f"latents/{latent}")
         m = hashlib.sha256()
-        with open(p, 'rb') as f:
+        with open(p, "rb") as f:
             m.update(f.read())
         return m.digest().hex()
 
@@ -461,6 +462,7 @@ class LoadLatent_WithParams:
         if not folder_paths.exists_annotated_filepath(latent):
             return f"Invalid latent file: {latent}"
         return True
+
 
 # ---------- Load multiple latents from a folder (WITH Comfy params, list outputs, video-safe) ----------
 class LoadLatents_FromFolder_WithParams:
@@ -854,13 +856,12 @@ class wan22EmptyHunyuanLatentVideoMXD:
         return ({"samples": latent},)
 
 # ---------- I2V-specific latent save/load (sidecar conditioning; subclassed loader) ----------
-
 class SaveLatent_I2V_MXD:
     """
     I2V-only saver that persists:
       • latent tensor  ->  .latent   (safetensors via comfy.utils.save_torch_file)
       • pos/neg CONDITIONING  ->  .cond.pt (torch.save; robust for nested tensors)
-      • preview images to TEMP for UI
+      • optional preview images to TEMP for UI
     """
     TITLE = "Save Latent I2V (with Conditioning)"
     CATEGORY = "MXD/Latents (I2V)"
@@ -877,12 +878,13 @@ class SaveLatent_I2V_MXD:
                 "negative": ("CONDITIONING", {"tooltip": "Negative CONDITIONING after WAN image→video."}),
                 "vae": ("VAE", {"tooltip": "Used to decode preview images for UI convenience."}),
                 "filename_prefix": ("STRING", {"default": "I2V", "tooltip": "Prefix for saved files"}),
+                "show_preview": ("BOOLEAN", {"default": False, "tooltip": "Show decoded preview images (slower)"}),
             },
             "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
         }
 
     def save_and_preview(self, samples, positive, negative, vae, filename_prefix="I2V",
-                         prompt=None, extra_pnginfo=None):
+                         show_preview=False, prompt=None, extra_pnginfo=None):
 
         # ---- save latent (.latent) ----
         latents_dir = os.path.join(folder_paths.get_input_directory(), "latents")
@@ -919,7 +921,10 @@ class SaveLatent_I2V_MXD:
         cond_path = latent_path.replace(".latent", ".cond.pt")
         torch.save({"positive": positive, "negative": negative}, cond_path)
 
-        # ---- previews to TEMP for UI ----
+        # ---- optional preview images ----
+        if not show_preview:
+            return {}  # skip VAE decode and preview generation
+
         images = vae.decode(samples["samples"])
         if len(images.shape) == 5:
             images = images.reshape(-1, images.shape[-3], images.shape[-2], images.shape[-1])
@@ -942,8 +947,6 @@ class SaveLatent_I2V_MXD:
             temp_counter += 1
 
         return {"ui": {"images": results}}
-
-
 class LoadLatent_I2V_MXD(LoadLatent_WithParams):
     """
     Same outputs as LoadLatent_WithParams plus two CONDITIONING outputs at the end.
@@ -980,30 +983,21 @@ class LoadLatent_I2V_MXD(LoadLatent_WithParams):
 
     @classmethod
     def INPUT_TYPES(s):
-        # mirror base: build file list
         latents_root = os.path.join(folder_paths.get_input_directory(), "latents")
         os.makedirs(latents_root, exist_ok=True)
         files = glob.glob(os.path.join(latents_root, "**", "*.latent"), recursive=True)
         files.sort()
-        options = [os.path.relpath(f, folder_paths.get_input_directory()).replace(os.sep, "/") for f in files]
+        # Clean dropdown display (no "latents/" prefix)
+        options = [os.path.relpath(f, latents_root).replace(os.sep, "/") for f in files]
 
-        # pull live enums from KSamplerAdvanced and attach them to THIS CLASS
         ks_inputs = KSamplerAdvanced.INPUT_TYPES().get("required", {})
         samplers_enum   = ks_inputs.get("sampler_name", ("STRING",))[0]
         schedulers_enum = ks_inputs.get("scheduler",    ("STRING",))[0]
 
-        # rebuild RETURN_TYPES on THIS CLASS so ports wire correctly
         s.RETURN_TYPES = (
-            "FLOAT",         # shift
-            "CONDITIONING",  # positive conditioning
-            "CONDITIONING",  # negative conditioning
-            "LATENT",
-            "INT",
-            "FLOAT",
-            samplers_enum,
-            schedulers_enum,
-            "INT",
-            "STRING",  # filename_prefix
+            "FLOAT", "CONDITIONING", "CONDITIONING", "LATENT",
+            "INT", "FLOAT", samplers_enum, schedulers_enum,
+            "INT", "STRING",
         )
         s._SAMPLERS_ENUM   = samplers_enum
         s._SCHEDULERS_ENUM = schedulers_enum
@@ -1012,7 +1006,8 @@ class LoadLatent_I2V_MXD(LoadLatent_WithParams):
 
     @classmethod
     def IS_CHANGED(s, latent):
-        p = folder_paths.get_annotated_filepath(latent)
+        # Fix path lookup (add "latents/" prefix back)
+        p = folder_paths.get_annotated_filepath(f"latents/{latent}")
         m = hashlib.sha256()
         with open(p, "rb") as f:
             m.update(f.read())
@@ -1024,15 +1019,17 @@ class LoadLatent_I2V_MXD(LoadLatent_WithParams):
 
     @classmethod
     def VALIDATE_INPUTS(s, latent):
-        return LoadLatent_WithParams.VALIDATE_INPUTS(latent)
+        # Pass prefixed path to base validator
+        return LoadLatent_WithParams.VALIDATE_INPUTS(f"latents/{latent}")
 
     def load(self, latent):
-        # Use base loader to get shift + metadata
+        # Use base loader (add prefix so it finds the file)
         base_tuple = super().load(latent)
 
-        # sidecar conditioning
-        latent_path = folder_paths.get_annotated_filepath(latent)
+        # Load .cond.pt (conditioning data)
+        latent_path = folder_paths.get_annotated_filepath(f"latents/{latent}")
         cond_path = latent_path.replace(".latent", ".cond.pt")
+
         positive_conditioning, negative_conditioning = [], []
         if os.path.exists(cond_path):
             try:
@@ -1043,96 +1040,139 @@ class LoadLatent_I2V_MXD(LoadLatent_WithParams):
                 positive_conditioning, negative_conditioning = [], []
 
         (
-            shift,
-            _pos_text,
-            _neg_text,
-            samples,
-            steps,
-            cfg,
-            sampler_name,
-            scheduler,
-            end_at_step,
-            prefix,
+            shift, _pos_text, _neg_text, samples,
+            steps, cfg, sampler_name, scheduler,
+            end_at_step, prefix,
         ) = base_tuple
 
         return (
-            shift,
-            positive_conditioning,
-            negative_conditioning,
-            samples,
-            steps,
-            cfg,
-            sampler_name,
-            scheduler,
-            end_at_step,
-            prefix,
+            shift, positive_conditioning, negative_conditioning,
+            samples, steps, cfg, sampler_name, scheduler,
+            end_at_step, prefix,
         )
     
-# ---- Canonical WAN 2.2 buckets ----
-BUCKETS_480 = [(832,480), (480,832), (624,624)]  # 16:9, 9:16, 1:1
-BUCKETS_720 = [(1280,720), (720,1280)]           # 16:9, 9:16
+class LoadLatents_FromFolder_I2V_MXD(LoadLatents_FromFolder_WithParams):
+    """
+    Same as LoadLatents_FromFolder_WithParams, but includes CONDITIONING outputs
+    (positive/negative tensors) loaded from paired `.cond.pt` sidecar files.
+    """
+    TITLE = "Load Latents (Folder, I2V + Conditioning)"
+    CATEGORY = "MXD/Latents (I2V)"
+    FUNCTION = "load_batch_i2v"
 
-def _round16(x: float) -> int:
-    x = int(round(x / 16.0) * 16)
-    return max(16, x)
+    RETURN_TYPES = (
+        "FLOAT",         # shift
+        "CONDITIONING",  # positive conditioning
+        "CONDITIONING",  # negative conditioning
+        "LATENT",
+        "INT",
+        "FLOAT",
+        "STRING",
+        "STRING",
+        "INT",
+        "STRING",
+    )
+    RETURN_NAMES = (
+        "shift",
+        "positive",
+        "negative",
+        "samples",
+        "steps",
+        "cfg",
+        "sampler_name",
+        "scheduler",
+        "end_at_step",
+        "filename_prefix",
+    )
 
-def _safe_hw(w: int, h: int):
-    w = max(16, min(w, nodes.MAX_RESOLUTION))
-    h = max(16, min(h, nodes.MAX_RESOLUTION))
-    return w, h
+    OUTPUT_IS_LIST = (True,) * 10  # same length for all outputs
 
-def _ar(w, h): return w / max(1, h)
+    def load_batch_i2v(self, subfolder):
+        latents_root = os.path.join(folder_paths.get_input_directory(), "latents")
+        base = os.path.join(latents_root, subfolder) if subfolder else latents_root
+        files = glob.glob(os.path.join(base, "**", "*.latent"), recursive=True)
+        files.sort()
+        if not files:
+            raise RuntimeError(f"[LoadLatents_FromFolder_I2V_MXD] No .latent files found in '{base}'.")
 
-def _closest_bucket(img_w, img_h, bucket_list, cover=False):
-    """Pick the best (bw,bh) from bucket_list for this image."""
-    if not bucket_list:
-        return None
-    in_ar = _ar(img_w, img_h)
-    best = None
-    best_key = (float("inf"), 0)
-    for bw, bh in bucket_list:
-        s = max(bw / img_w, bh / img_h) if cover else min(bw / img_w, bh / img_h)
-        ar_diff = abs(_ar(bw, bh) - in_ar)
-        key = (abs(1.0 - s), ar_diff)
-        if key < best_key:
-            best_key, best = key, (bw, bh)
-    return best
+        shifts, samples_list = [], []
+        positives, negatives = [], []
+        steps_list, cfgs, samplers, schedulers, end_steps = [], [], [], [], []
+        filename_prefixes = []
 
-def _resize_then_center_crop(img, out_w, out_h):
-    """Resize to cover then center-crop."""
-    t, ih, iw, c = img.shape
-    s = max(out_w / iw, out_h / ih)
-    tw, th = _round16(int(iw * s)), _round16(int(ih * s))
-    tmp = comfy.utils.common_upscale(img.movedim(-1, 1), tw, th, "bilinear", "center").movedim(1, -1)
-    y0, x0 = max(0, (th - out_h)//2), max(0, (tw - out_w)//2)
-    return tmp[:, y0:y0+out_h, x0:x0+out_w, :]
+        for path in files:
+            sample_dict, meta, _ = _load_latent_file(path)
+            t = sample_dict["samples"]
 
-def _resize_fit_inside(img, out_w, out_h):
-    """Resize to fit inside target while keeping AR."""
-    t, ih, iw, c = img.shape
-    s = min(out_w / iw, out_h / ih)
-    tw, th = _round16(int(iw * s)), _round16(int(ih * s))
-    tw, th = _safe_hw(tw, th)
-    resized = comfy.utils.common_upscale(img.movedim(-1, 1), tw, th, "bilinear", "center").movedim(1, -1)
-    return resized, tw, th
+            if isinstance(t, torch.Tensor) and t.dim() >= 4 and t.size(0) > 1:
+                slices = [t[i:i+1].contiguous() for i in range(t.size(0))]
+            else:
+                slices = [t if (isinstance(t, torch.Tensor) and t.dim() >= 4 and t.size(0) == 1)
+                          else t.unsqueeze(0)]
 
+            prompt_json = _safe_json_loads(meta.get("prompt"))
+            pos, neg, n_steps, cfg, sampler_name, scheduler, end_at_step = \
+                _extract_params_from_prompt_json(prompt_json or {})
 
+            sampler_name = self._coerce_enum(sampler_name, getattr(self.__class__, "_SAMPLERS_ENUM", ()))
+            scheduler    = self._coerce_enum(scheduler,    getattr(self.__class__, "_SCHEDULERS_ENUM", ()))
+            shift_val    = self._extract_sd3_shift(meta, prompt_json)
+
+            # Load sidecar conditionings
+            cond_path = path.replace(".latent", ".cond.pt")
+            positive_conditioning, negative_conditioning = [], []
+            if os.path.exists(cond_path):
+                try:
+                    d = torch.load(cond_path, map_location="cpu")
+                    positive_conditioning = d.get("positive", [])
+                    negative_conditioning = d.get("negative", [])
+                except Exception:
+                    pass
+
+            folder_part = subfolder if subfolder else ""
+            clean_stem  = self._strip_counter(os.path.basename(path))
+            prefix      = os.path.join(folder_part, clean_stem) if folder_part else clean_stem
+
+            for sl in slices:
+                shifts.append(float(shift_val))
+                positives.append(positive_conditioning)
+                negatives.append(negative_conditioning)
+                samples_list.append({"samples": sl})
+                steps_list.append(int(n_steps))
+                cfgs.append(float(cfg))
+                samplers.append(sampler_name)
+                schedulers.append(scheduler)
+                end_steps.append(int(end_at_step))
+                filename_prefixes.append(prefix)
+
+        return (
+            shifts,
+            positives,
+            negatives,
+            samples_list,
+            steps_list,
+            cfgs,
+            samplers,
+            schedulers,
+            end_steps,
+            filename_prefixes,
+        )
+
+    
+# ---------- WAN 2.2 Image to Video (no scaling; expects pre-sized input) ----------
 class WanImageToVideoMXD:
     """
     WAN 2.2 Image → Video (MXD)
-
-    - Auto chooses 480p or 720p based on AR and input size.
-    - Optional Crop-to-Fit (off by default).
-    - Automatically scales image down or up to closest bucket.
+    ⚙️ No scaling — expects pre-sized input.
     """
 
-    TITLE       = "WAN Image to Video MXD"
-    CATEGORY    = "conditioning/video_models"
-    DESCRIPTION = "Image-to-video conditioning with Auto/480p/720p scaling and optional crop-to-fit."
+    TITLE = "WAN Image to Video MXD (No Scaling)"
+    CATEGORY = "conditioning/video_models"
+    DESCRIPTION = "Encodes a pre-scaled image for WAN 2.2 video conditioning."
 
     RETURN_TYPES = ("CONDITIONING", "CONDITIONING", "LATENT")
     RETURN_NAMES = ("positive", "negative", "latent")
-    FUNCTION     = "run"
+    FUNCTION = "run"
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -1140,11 +1180,9 @@ class WanImageToVideoMXD:
             "required": {
                 "positive": ("CONDITIONING",),
                 "negative": ("CONDITIONING",),
-                "vae":      ("VAE",),
-                "length":   ("INT", {"default": 81, "min": 1, "max": 16384, "step": 4}),
+                "vae": ("VAE",),
+                "length": ("INT", {"default": 81, "min": 1, "max": 16384, "step": 4}),
                 "batch_size": ("INT", {"default": 1, "min": 1, "max": 4096}),
-                "tier": (["Auto", "480p", "720p"], {"default": "Auto"}),
-                "crop_to_fit": ("BOOLEAN", {"default": False, "label_on": "Crop to Fit", "label_off": "Fit Inside"}),
             },
             "optional": {
                 "clip_vision_output": ("CLIP_VISION_OUTPUT",),
@@ -1152,71 +1190,198 @@ class WanImageToVideoMXD:
             }
         }
 
-    # -------- internals --------
-    @staticmethod
-    def _pick_bucket(img_w, img_h, tier, crop_to_fit):
-        in_ar = _ar(img_w, img_h)
-
-        if tier == "480p":
-            return _closest_bucket(img_w, img_h, BUCKETS_480, crop_to_fit)
-        if tier == "720p":
-            return _closest_bucket(img_w, img_h, BUCKETS_720, crop_to_fit)
-
-        # Auto: choose smartly
-        if 0.95 <= in_ar <= 1.05:  # square-ish → 480p 624x624
-            return (624, 624)
-        # prefer 720p for wider or portrait inputs
-        return _closest_bucket(img_w, img_h, BUCKETS_720 if max(img_w, img_h) > 720 else BUCKETS_480, crop_to_fit)
-
-    # -------- main --------
     def run(self, positive, negative, vae, length, batch_size,
-            tier="Auto", crop_to_fit=False, clip_vision_output=None, start_image=None):
+            clip_vision_output=None, start_image=None):
 
-        # Default when no start image
         if start_image is None:
-            final_w, final_h = 832, 480
-        else:
-            _, ih, iw, _ = start_image.shape
-            bw, bh = self._pick_bucket(iw, ih, tier, crop_to_fit)
-            final_w, final_h = _safe_hw(_round16(bw), _round16(bh))
+            raise ValueError("start_image must be provided (already scaled).")
 
-        # Latent setup
+        # dims from the provided (pre-scaled) image
+        frames_in, ih, iw, ch = start_image.shape
+        frames_used = min(frames_in, length)
         t = ((length - 1) // 4) + 1
+
+        # latent grid sized off the spatial dims and length-derived t
         latent = torch.zeros(
-            [batch_size, 16, t, final_h // 8, final_w // 8],
+            [batch_size, 16, t, ih // 8, iw // 8],
             device=comfy.model_management.intermediate_device()
         )
 
-        # Encode start image
-        if start_image is not None:
-            if crop_to_fit:
-                framed = _resize_then_center_crop(start_image[:length], final_w, final_h)
-            else:
-                resized, rw, rh = _resize_fit_inside(start_image[:length], final_w, final_h)
-                framed = torch.ones((resized.shape[0], final_h, final_w, resized.shape[-1]),
-                                    device=resized.device, dtype=resized.dtype) * 0.5
-                y0, x0 = (final_h - rh)//2, (final_w - rw)//2
-                framed[:, y0:y0+rh, x0:x0+rw, :] = resized
+        # ▶ Build a full-length (length, H, W, C) tensor and copy the given frames
+        image = torch.ones(
+            (length, ih, iw, ch),
+            device=start_image.device,
+            dtype=start_image.dtype
+        ) * 0.5
+        image[:frames_used] = start_image[:frames_used]
 
-            concat_latent_image = vae.encode(framed[:, :, :, :3])
-            mask = torch.ones(
-                (1, 1, latent.shape[2], concat_latent_image.shape[-2], concat_latent_image.shape[-1]),
-                device=framed.device, dtype=framed.dtype
-            )
-            mask[:, :, :((framed.shape[0] - 1) // 4) + 1] = 0.0
+        # ▶ Encode the full-length tensor so its latent T matches t
+        concat_latent_image = vae.encode(image[:, :, :, :3])
 
-            positive = node_helpers.conditioning_set_values(positive, {
-                "concat_latent_image": concat_latent_image, "concat_mask": mask
-            })
-            negative = node_helpers.conditioning_set_values(negative, {
-                "concat_latent_image": concat_latent_image, "concat_mask": mask
-            })
+        # ▶ Make mask with T = t, and zero only the used frame-chunks
+        mask = torch.ones(
+            (1, 1, t, concat_latent_image.shape[-2], concat_latent_image.shape[-1]),
+            device=image.device,
+            dtype=image.dtype
+        )
+        mask[:, :, :((frames_used - 1) // 4) + 1] = 0.0
+
+        positive = node_helpers.conditioning_set_values(
+            positive, {"concat_latent_image": concat_latent_image, "concat_mask": mask}
+        )
+        negative = node_helpers.conditioning_set_values(
+            negative, {"concat_latent_image": concat_latent_image, "concat_mask": mask}
+        )
 
         if clip_vision_output is not None:
             positive = node_helpers.conditioning_set_values(positive, {"clip_vision_output": clip_vision_output})
             negative = node_helpers.conditioning_set_values(negative, {"clip_vision_output": clip_vision_output})
 
         return (positive, negative, {"samples": latent})
+    
+
+# ---- Canonical WAN 2.2 buckets ----
+BUCKETS_480 = [(832,480), (480,832), (624,624)]   # 16:9, 9:16, 1:1
+BUCKETS_720 = [(1280,720), (720,1280)]            # 16:9, 9:16
+SQUARE_TOL  = 0.03  # ±3% aspect-ratio tolerance counts as "square-ish"
+
+def _ar(w, h): 
+    return w / max(1, h)
+
+def _safe_hw(w, h):
+    w = max(16, min(w, nodes.MAX_RESOLUTION))
+    h = max(16, min(h, nodes.MAX_RESOLUTION))
+    return w, h
+
+def _floor16(x):
+    x = int(x) // 16 * 16
+    return max(16, x)
+
+def _ceil16(x):
+    x = (int(x) + 15) // 16 * 16
+    return max(16, x)
+
+def _is_squareish(w, h, tol=SQUARE_TOL):
+    r = _ar(w, h)
+    return abs(r - 1.0) <= tol
+
+def _closest_bucket(img_w, img_h, bucket_list, cover=False):
+    """
+    Pick the best (bw,bh) from bucket_list for this image.
+    Uses scale closeness + AR diff to rank.
+    """
+    in_ar = _ar(img_w, img_h)
+    best, best_key = None, (float("inf"), 0.0)
+    for bw, bh in bucket_list:
+        s = max(bw/img_w, bh/img_h) if cover else min(bw/img_w, bh/img_h)
+        ar_diff = abs(_ar(bw, bh) - in_ar)
+        key = (abs(1.0 - s), ar_diff)
+        if key < best_key:
+            best_key, best = key, (bw, bh)
+    return best
+
+def _resize_then_center_crop(img, out_w, out_h):
+    """
+    Resize to cover target (ensures >= target on both sides after ceil16),
+    then center-crop. No padding.
+    """
+    t, ih, iw, c = img.shape
+    s = max(out_w / iw, out_h / ih)
+    tw = _ceil16(iw * s)
+    th = _ceil16(ih * s)
+    tmp = comfy.utils.common_upscale(img.movedim(-1, 1), tw, th, "bilinear", "center").movedim(1, -1)
+    y0 = max(0, (th - out_h) // 2)
+    x0 = max(0, (tw - out_w) // 2)
+    return tmp[:, y0:y0+out_h, x0:x0+out_w, :]
+
+def _resize_fit_inside(img, out_w, out_h):
+    """
+    Resize to fit inside target (ensures <= target on both sides via floor16),
+    and return the resized tensor only. No padding.
+    """
+    t, ih, iw, c = img.shape
+    s = min(out_w / iw, out_h / ih)
+    tw = _floor16(iw * s)
+    th = _floor16(ih * s)
+    tw, th = _safe_hw(tw, th)
+    resized = comfy.utils.common_upscale(img.movedim(-1, 1), tw, th, "bilinear", "center").movedim(1, -1)
+    return resized, tw, th
+
+# ---------- WAN 2.2 Image Scaler (no padding; fit or crop modes; square-aware) ----------
+class WAN22_I2V_Image_Scaler_MXD:
+    """
+    MXD Image Scaler for WAN 2.2 (NO PADDING)
+    - Modes: Auto / 480p / 720p
+    - Fit (no pad): proportional resize ≤ target; returns resized dims.
+    - Crop (no pad): resize-to-cover then center-crop to exact target.
+    - Square handling:
+        * Auto: ~square → 624×624
+        * 480p: ~square → 624×624
+        * 720p: ~square → 720×720  (explicitly supported)
+    """
+
+    TITLE = "Image Bucket Scaler MXD (No Pad)"
+    CATEGORY = "image/processing"
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "scale"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "tier": (["Auto", "480p", "720p"], {"default": "Auto"}),
+                "crop_to_fit": ("BOOLEAN", {"default": False, "label_on": "Perfect Fit (Crops Edges)", "label_off": "Closest Fit (No Crop)"}),
+            }
+        }
+
+    def _pick_bucket(self, iw, ih, tier, crop_to_fit):
+        in_ar = _ar(iw, ih)
+        is_squareish = abs(in_ar - 1.0) <= SQUARE_TOL
+        is_landscape = iw >= ih
+
+        if tier == "720p":
+            # --- Always force square → 720x720 ---
+            if is_squareish:
+                return (720, 720)
+
+            # --- Normal 16:9 / 9:16 handling ---
+            buckets = BUCKETS_720.copy()
+            if not is_squareish:
+                # lock orientation
+                buckets = [(1280, 720)] if is_landscape else [(720, 1280)]
+            return _closest_bucket(iw, ih, buckets, cover=crop_to_fit)
+
+        if tier == "480p":
+            buckets = BUCKETS_480.copy()
+            if not is_squareish:
+                buckets = [(832,480)] if is_landscape else [(480,832)]
+            elif is_squareish:
+                buckets.append((624,624))
+            return _closest_bucket(iw, ih, buckets, cover=crop_to_fit)
+
+        # Auto mode
+        if is_squareish:
+            return (624,624)
+        buckets = BUCKETS_720 if max(iw,ih)>720 else BUCKETS_480
+        if not is_squareish:
+            buckets = [(b[0],b[1]) for b in buckets if (b[0]>b[1]) == is_landscape]
+        return _closest_bucket(iw, ih, buckets, cover=crop_to_fit)
+
+    def scale(self, image, tier="Auto", crop_to_fit=False):
+        _, ih, iw, _ = image.shape
+        bw, bh = self._pick_bucket(iw, ih, tier, crop_to_fit)
+        # Buckets are canonical; ensure they are /16 and safe
+        bw, bh = _safe_hw(_ceil16(bw), _ceil16(bh)) if crop_to_fit else _safe_hw(_floor16(bw), _floor16(bh))
+
+        if crop_to_fit:
+            # Cover → center crop to exact (bw,bh). No padding.
+            out = _resize_then_center_crop(image, bw, bh)
+        else:
+            # Fit inside → return resized (tw,th) only. No padding.
+            out, _, _ = _resize_fit_inside(image, bw, bh)
+
+        return (out,)
 
 # ---------- Node registration ----------
 NODE_CLASS_MAPPINGS = {
@@ -1227,7 +1392,9 @@ NODE_CLASS_MAPPINGS = {
     "wan22EmptyHunyuanLatentVideoMXD": wan22EmptyHunyuanLatentVideoMXD,
     "SaveLatent_I2V_MXD": SaveLatent_I2V_MXD,
     "LoadLatent_I2V_MXD": LoadLatent_I2V_MXD,
+    "LoadLatents_FromFolder_I2V_MXD": LoadLatents_FromFolder_I2V_MXD,
     "WanImageToVideoMXD": WanImageToVideoMXD,
+    "WAN22_I2V_Image_Scaler_MXD": WAN22_I2V_Image_Scaler_MXD,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -1238,5 +1405,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "wan22EmptyHunyuanLatentVideoMXD": "WAN2.2 Empty Latent Video MXD",
     "SaveLatent_I2V_MXD": "Save Latent I2V MXD",
     "LoadLatent_I2V_MXD": "Load Latent I2V MXD",
+    "LoadLatents_FromFolder_I2V_MXD": "Load Latent Batch I2V MXD",
     "WanImageToVideoMXD": "WAN Image to Video MXD",
+    "WAN22_I2V_Image_Scaler_MXD": "WAN 2.2 I2V Image Scaler MXD",
 }
