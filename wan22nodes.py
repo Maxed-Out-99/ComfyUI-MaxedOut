@@ -1,20 +1,27 @@
-import os, json, hashlib, glob
+from __future__ import annotations
+import os, re, glob, json, hashlib, uuid, math
 from typing import Any, Dict, Tuple, Optional, List, Union
+
 import torch
-from safetensors import safe_open
-from comfy.cli_args import args
 import numpy as np
 from PIL import Image
+from safetensors import safe_open
+
 import folder_paths
 import comfy.utils
-from nodes import KSamplerAdvanced
-import nodes
 import comfy.model_management
+from comfy.cli_args import args
+from nodes import KSamplerAdvanced
 import node_helpers
-from comfy_api.latest import ComfyExtension, io, ui
+import nodes
+
+# Comfy API
+from comfy_api.latest import io, ui
+from comfy_api.input import VideoInput
+from comfy_api.input_impl import VideoFromFile, VideoFromComponents
+from comfy_api.util import VideoComponents, VideoContainer, VideoCodec
+
 import imageio.v3 as iio
-
-
 
 # ---------- SaveLatent (Comfy-only; saves into input/latents) ----------
 class SaveLatentMXD:
@@ -401,12 +408,16 @@ class LoadLatent_WithParams:
         return 5.0
 
     def load(self, latent):
-        latent_path = folder_paths.get_annotated_filepath(f"latents/{latent}")
+        # ✅ Ensure we prepend "latents/" if missing, but don't duplicate it
+        if not latent.startswith("latents/"):
+            latent_path = folder_paths.get_annotated_filepath(f"latents/{latent}")
+        else:
+            latent_path = folder_paths.get_annotated_filepath(latent)
+
         sample_dict, meta, _ = _load_latent_file(latent_path)
         t = sample_dict["samples"]
 
         if isinstance(t, torch.Tensor) and t.dim() >= 4 and t.size(0) > 1:
-            # for safety, only take first slice (multi-batch handling is folder loader’s job)
             samples = {"samples": t[0:1].contiguous()}
         elif isinstance(t, torch.Tensor) and t.dim() >= 4 and t.size(0) == 1:
             samples = {"samples": t}
@@ -459,7 +470,10 @@ class LoadLatent_WithParams:
 
     @classmethod
     def VALIDATE_INPUTS(s, latent):
-        if not folder_paths.exists_annotated_filepath(latent):
+        check_path = latent if latent.startswith("latents/") else f"latents/{latent}"
+        try:
+            folder_paths.get_annotated_filepath(check_path)
+        except Exception:
             return f"Invalid latent file: {latent}"
         return True
 
@@ -1382,6 +1396,457 @@ class WAN22_I2V_Image_Scaler_MXD:
             out, _, _ = _resize_fit_inside(image, bw, bh)
 
         return (out,)
+    
+class Frames_Select_End_MXD:
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "frames": ("IMAGE",),
+                "count": ("INT", {"default": 10, "min": 1, "max": 10000, "tooltip": "Number of frames to select from the end"}),
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("image",)
+    FUNCTION     = "main"
+    CATEGORY     = "MXD/images"
+
+    def main(self, frames=None, count=10):
+        total = frames.shape[0]
+        start = max(0, total - count)
+        frames_end = frames[start:].clone()
+        return (frames_end,)
+    
+class Frames_Remove_From_Start_MXD:
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "frames": ("IMAGE",),
+                "count": ("INT", {
+                    "default": 10,
+                    "min": 1,
+                    "max": 10000,
+                    "tooltip": "Number of frames to remove from the start"
+                }),
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("image",)
+    FUNCTION     = "main"
+    CATEGORY     = "MXD/images"
+
+    def main(self, frames=None, count=10):
+        # ✅ Skip the first `count` frames instead of keeping them
+        frames_after = frames[count:].clone()
+        return (frames_after,)
+
+
+class CombineVideos_MXD:
+    """
+    Combine two VIDEO inputs end-to-end (sequentially).
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "video_a": ("VIDEO", {"tooltip": "The first video (plays first)"}),
+                "video_b": ("VIDEO", {"tooltip": "The second video (plays after video_a)"}),
+            },
+        }
+
+    RETURN_TYPES = ("VIDEO",)
+    RETURN_NAMES = ("video",)
+    FUNCTION = "combine"
+    CATEGORY = "MXD/video"
+
+    def combine(self, video_a, video_b):
+        comp_a = video_a.get_components()
+        comp_b = video_b.get_components()
+
+        # Check frame rate consistency
+        if comp_a.frame_rate != comp_b.frame_rate:
+            raise ValueError(f"FPS mismatch: {comp_a.frame_rate} vs {comp_b.frame_rate}")
+
+        # ✅ Correct way: concatenate frame tensors along batch/time dimension (dim=0)
+        frames_a = torch.stack(comp_a.images) if isinstance(comp_a.images, list) else comp_a.images
+        frames_b = torch.stack(comp_b.images) if isinstance(comp_b.images, list) else comp_b.images
+        combined_images = torch.cat([frames_a, frames_b], dim=0)
+
+        # ✅ Combine audio sequentially
+        combined_audio = None
+        if comp_a.audio is not None or comp_b.audio is not None:
+            audio_a = comp_a.audio if comp_a.audio is not None else torch.zeros((1, 0))
+            audio_b = comp_b.audio if comp_b.audio is not None else torch.zeros((1, 0))
+            combined_audio = torch.cat([audio_a, audio_b], dim=1)
+
+
+
+        combined_video = VideoFromComponents(
+            VideoComponents(
+                images=combined_images,
+                audio=combined_audio,
+                frame_rate=comp_a.frame_rate,
+            )
+        )
+
+        return (combined_video,)
+    
+
+class LoadVideoMXD(io.ComfyNode):
+    @classmethod
+    def define_schema(cls):
+        input_dir = folder_paths.get_input_directory()
+        files = [f for f in os.listdir(input_dir) if os.path.isfile(os.path.join(input_dir, f))]
+        files = folder_paths.filter_files_content_types(files, ["video"])
+        return io.Schema(
+            node_id="LoadVideoMXD",
+            display_name="Load Video MXD (Auto-Reload)",
+            category="image/video",
+            description="Always reloads the newest video with the same base name each time you run.",
+            inputs=[
+                io.Combo.Input(
+                    "file",
+                    options=sorted(files),
+                    upload=io.UploadType.video,
+                    tooltip="Pick or upload the base video. The newest version will be auto-loaded on next run."
+                ),
+            ],
+            outputs=[
+                io.Video.Output("video"),
+                io.String.Output("video_path"),
+            ],
+        )
+
+    @classmethod
+    def _find_latest(cls, base_path: str) -> str:
+        base_dir, base_filename = os.path.split(base_path)
+        base_name, _ = os.path.splitext(base_filename)
+
+        related = [
+            os.path.join(base_dir, f)
+            for f in os.listdir(base_dir)
+            if f.startswith(base_name) and os.path.isfile(os.path.join(base_dir, f))
+        ]
+        if not related:
+            return base_path
+        newest = max(related, key=os.path.getmtime)
+        return newest
+
+    @classmethod
+    def execute(cls, file):
+        video_path = folder_paths.get_annotated_filepath(file)
+        latest = cls._find_latest(video_path)
+        if latest != video_path:
+            print(f"[LoadVideoMXD] Reloading latest: {os.path.basename(latest)}")
+        return io.NodeOutput(VideoFromFile(latest), latest)
+
+    # 🔥 This is the missing piece — forces reload whenever a newer file exists
+    @classmethod
+    def fingerprint_inputs(cls, file):
+        video_path = folder_paths.get_annotated_filepath(file)
+        latest = cls._find_latest(video_path)
+        return os.path.getmtime(latest)
+
+
+class LoadVideoMXD(io.ComfyNode):
+    @classmethod
+    def define_schema(cls):
+        input_dir = folder_paths.get_input_directory()
+        files = [f for f in os.listdir(input_dir) if os.path.isfile(os.path.join(input_dir, f))]
+        files = folder_paths.filter_files_content_types(files, ["video"])
+        return io.Schema(
+            node_id="LoadVideoMXD",
+            display_name="Load Video MXD",
+            category="image/video",
+            description="Always reloads the newest video with the same base name each time you run.",
+            inputs=[
+                io.Combo.Input(
+                    "file",
+                    options=sorted(files),
+                    upload=io.UploadType.video,
+                    tooltip="Pick or upload the base video. The newest version will be auto-loaded on next run."
+                ),
+            ],
+            outputs=[
+                io.Video.Output("video"),
+                io.String.Output("video_path"),
+            ],
+        )
+
+    @classmethod
+    def _find_latest(cls, base_path: str) -> str:
+        base_dir, base_filename = os.path.split(base_path)
+        base_name, _ = os.path.splitext(base_filename)
+        related = [
+            os.path.join(base_dir, f)
+            for f in os.listdir(base_dir)
+            if f.startswith(base_name) and os.path.isfile(os.path.join(base_dir, f))
+        ]
+        if not related:
+            return base_path
+        return max(related, key=os.path.getmtime)
+
+    @classmethod
+    def execute(cls, file):
+        video_path = folder_paths.get_annotated_filepath(file)
+        latest = cls._find_latest(video_path)
+        if latest != video_path:
+            print(f"[LoadVideoMXD] Reloading latest: {os.path.basename(latest)}")
+        return io.NodeOutput(VideoFromFile(latest), latest)
+
+    @classmethod
+    def fingerprint_inputs(cls, file):
+        video_path = folder_paths.get_annotated_filepath(file)
+        latest = cls._find_latest(video_path)
+        return os.path.getmtime(latest)
+
+
+class SaveVideoMXD(io.ComfyNode):
+    @classmethod
+    def define_schema(cls):
+        return io.Schema(
+            node_id="SaveVideoMXD",
+            display_name="Save Video MXD",
+            category="image/video",
+            description="Saves a new version of the video next to the original, auto-incrementing filenames cleanly.",
+            inputs=[
+                io.Video.Input("video"),
+                io.String.Input("video_path"),
+                io.Combo.Input("save_to_outputs", options=[False, True], default=False),
+                io.Combo.Input("format", options=VideoContainer.as_input(), default="auto"),
+                io.Combo.Input("codec", options=VideoCodec.as_input(), default="auto"),
+            ],
+            outputs=[],
+            hidden=[io.Hidden.prompt, io.Hidden.extra_pnginfo],
+            is_output_node=True,
+        )
+
+    @classmethod
+    def execute(cls, video: VideoInput, video_path: str, save_to_outputs: bool, format: str, codec: str):
+        base_dir, base_filename = os.path.split(video_path)
+        base_name, ext = os.path.splitext(base_filename)
+
+        # 🧹 Clean trailing counters like "__001__002" → remove them all
+        base_clean = re.sub(r'(__\d+)+$', '', base_name)
+
+        # 🧮 Now find the next available counter
+        pattern = re.compile(rf"^{re.escape(base_clean)}__(\d+){re.escape(ext)}$")
+        existing = [
+            int(m.group(1))
+            for f in os.listdir(base_dir)
+            if (m := pattern.match(f))
+        ]
+        next_counter = max(existing, default=0) + 1
+
+        new_filename = f"{base_clean}__{next_counter:03d}{ext}"
+        save_path = os.path.join(base_dir, new_filename)
+
+        # 💾 Metadata
+        saved_metadata = None
+        if not args.disable_metadata:
+            metadata = {}
+            if cls.hidden.extra_pnginfo is not None:
+                metadata.update(cls.hidden.extra_pnginfo)
+            if cls.hidden.prompt is not None:
+                metadata["prompt"] = cls.hidden.prompt
+            if metadata:
+                saved_metadata = metadata
+
+        # 🚀 Save main copy
+        video.save_to(save_path, format=format, codec=codec, metadata=saved_metadata)
+
+        # 🪣 Optional copy to outputs folder
+        if save_to_outputs:
+            out_dir = folder_paths.get_output_directory()
+            os.makedirs(out_dir, exist_ok=True)
+            alt_path = os.path.join(out_dir, new_filename)
+            video.save_to(alt_path, format=format, codec=codec, metadata=saved_metadata)
+            print(f"[SaveVideoMXD] Also saved copy to outputs: {alt_path}")
+
+        print(f"[SaveVideoMXD] Saved clean new version: {new_filename}")
+        rel_folder = os.path.relpath(base_dir, folder_paths.get_output_directory())
+        return io.NodeOutput(ui=ui.PreviewVideo([ui.SavedResult(new_filename, rel_folder, io.FolderType.output)]))
+    
+class GroupVideoFramesMXD:
+    CATEGORY = "MXD/Video"
+    TITLE = "Group Video Frames (MXD)"
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("IMAGE_GROUPS",)
+    OUTPUT_IS_LIST = (True,)
+    FUNCTION = "group_frames"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "frames": ("IMAGE",),
+                "group_size": ("INT", {"default": 81, "min": 1, "max": 5000, "step": 1}),
+            }
+        }
+
+    def group_frames(self, frames, group_size):
+        import math, torch
+
+        all_frames = list(frames)
+        total = len(all_frames)
+        num_groups = math.ceil(total / group_size)
+        grouped_tensors = []
+
+        for i in range(num_groups):
+            start = i * group_size
+            end = min(start + group_size, total)
+            group = all_frames[start:end]
+
+            clean = []
+            for f in group:
+                # ✅ drop redundant singleton batch dim if present
+                if f.ndim == 4 and f.shape[0] == 1:
+                    f = f.squeeze(0)  # (H,W,C)
+                # ✅ ensure shape (H,W,C)
+                if f.ndim != 3:
+                    print(f"[GroupVideoFramesMXD] weird frame shape {f.shape}")
+                    continue
+                clean.append(f)
+
+            # ✅ stack back to (N,H,W,C)
+            if len(clean) == 0:
+                continue
+            stacked = torch.stack(clean, dim=0)
+            grouped_tensors.append(stacked)
+
+        print(f"[GroupVideoFramesMXD] Split {total} frames into {len(grouped_tensors)} groups of up to {group_size}.")
+        return (grouped_tensors,)
+
+import os
+import torch
+from comfy_api.latest import io, ui
+from comfy_api.util import VideoComponents, VideoContainer, VideoCodec
+from comfy_api.input_impl import VideoFromFile, VideoFromComponents
+import folder_paths
+from comfy.cli_args import args
+
+
+class SaveAndMergeWhenComplete_MXD(io.ComfyNode):
+    """
+    Saves batched video parts and merges them automatically once all expected parts are present.
+    """
+
+    @classmethod
+    def define_schema(cls):
+        return io.Schema(
+            node_id="SaveAndMergeWhenComplete_MXD",
+            display_name="Save & Merge When Complete (MXD)",
+            category="MXD/video",
+            description="Saves each incoming video part, and merges all parts once the expected count is reached.",
+            inputs=[
+                io.Video.Input("video", tooltip="Video to save (one per batch item)."),
+                io.String.Input(
+                    "folder_name",
+                    default="temp_batch_merge",
+                    tooltip="Subfolder under output/video/ to save temporary parts."
+                ),
+                io.Int.Input(
+                    "expected_parts",
+                    default=2,
+                    min=1,
+                    max=9999,
+                    tooltip="Total number of parts to wait for before merging."
+                ),
+                io.Combo.Input(
+                    "format",
+                    options=VideoContainer.as_input(),
+                    default="auto",
+                    tooltip="Container format for the saved videos."
+                ),
+                io.Combo.Input(
+                    "codec",
+                    options=VideoCodec.as_input(),
+                    default="auto",
+                    tooltip="Codec to use for the video."
+                ),
+            ],
+            outputs=[
+                io.String.Output("final_video_path", tooltip="Full path of the merged video (only once complete)."),
+            ],
+            hidden=[io.Hidden.prompt, io.Hidden.extra_pnginfo],
+            is_output_node=False,
+        )
+
+    @classmethod
+    def execute(cls, video, folder_name, expected_parts, format, codec) -> io.NodeOutput:
+        output_dir = os.path.join(folder_paths.get_output_directory(), "video", folder_name)
+        os.makedirs(output_dir, exist_ok=True)
+
+        # --- Save incoming video part ---
+        part_index = len([f for f in os.listdir(output_dir) if f.endswith(".mp4")])
+        part_path = os.path.join(output_dir, f"part_{part_index+1:03d}.mp4")
+
+        # --- Metadata (same as SaveVideo) ---
+        saved_metadata = None
+        if not args.disable_metadata:
+            metadata = {}
+            if cls.hidden.extra_pnginfo is not None:
+                metadata.update(cls.hidden.extra_pnginfo)
+            if cls.hidden.prompt is not None:
+                metadata["prompt"] = cls.hidden.prompt
+            if metadata:
+                saved_metadata = metadata
+
+        video.save_to(part_path, format=format, codec=codec, metadata=saved_metadata)
+        print(f"[SaveAndMergeWhenComplete_MXD] 💾 Saved part {part_index+1}/{expected_parts} → {part_path}")
+
+        # --- Check how many parts exist ---
+        part_files = sorted([
+            os.path.join(output_dir, f)
+            for f in os.listdir(output_dir)
+            if f.lower().endswith(".mp4")
+        ])
+
+        if len(part_files) < expected_parts:
+            print(f"[SaveAndMergeWhenComplete_MXD] Waiting for all parts ({len(part_files)}/{expected_parts})...")
+            return io.NodeOutput(final_video_path="")  # Not ready yet
+
+        # ✅ All parts present → merge them
+        print(f"[SaveAndMergeWhenComplete_MXD] All {expected_parts} parts found. Starting merge...")
+
+        comp_ref = VideoFromFile(part_files[0]).get_components()
+        all_frames = []
+        all_audio = []
+        frame_rate = comp_ref.frame_rate
+
+        for path in part_files:
+            vid = VideoFromFile(path)
+            comp = vid.get_components()
+            frames = torch.stack(comp.images) if isinstance(comp.images, list) else comp.images
+            all_frames.append(frames)
+            if comp.audio is not None:
+                all_audio.append(comp.audio)
+
+        merged_frames = torch.cat(all_frames, dim=0)
+        merged_audio = torch.cat(all_audio, dim=1) if all_audio else None
+
+        combined_video = VideoFromComponents(
+            VideoComponents(images=merged_frames, audio=merged_audio, frame_rate=frame_rate)
+        )
+
+        final_path = os.path.join(output_dir, "merged_final.mp4")
+        combined_video.save_to(final_path, format=format, codec=codec, metadata=saved_metadata)
+
+        print(f"[SaveAndMergeWhenComplete_MXD] ✅ Merged {expected_parts} parts → {final_path}")
+
+        return io.NodeOutput(final_path)
+
+
 
 # ---------- Node registration ----------
 NODE_CLASS_MAPPINGS = {
@@ -1395,6 +1860,12 @@ NODE_CLASS_MAPPINGS = {
     "LoadLatents_FromFolder_I2V_MXD": LoadLatents_FromFolder_I2V_MXD,
     "WanImageToVideoMXD": WanImageToVideoMXD,
     "WAN22_I2V_Image_Scaler_MXD": WAN22_I2V_Image_Scaler_MXD,
+    "Frames_Select_End_MXD": Frames_Select_End_MXD,
+    "Frames_Remove_From_Start_MXD": Frames_Remove_From_Start_MXD,
+    "CombineVideos_MXD": CombineVideos_MXD,
+    "LoadVideoMXD": LoadVideoMXD,
+    "SaveVideoMXD": SaveVideoMXD,
+    "GroupVideoFramesMXD": GroupVideoFramesMXD,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -1408,4 +1879,10 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadLatents_FromFolder_I2V_MXD": "Load Latent Batch I2V MXD",
     "WanImageToVideoMXD": "WAN Image to Video MXD",
     "WAN22_I2V_Image_Scaler_MXD": "WAN 2.2 I2V Image Scaler MXD",
+    "Frames_Select_End_MXD": "Frames Select End MXD",
+    "Frames_Remove_From_Start_MXD": "Frames Remove From Start MXD",
+    "CombineVideos_MXD": "Combine Videos MXD",
+    "LoadVideoMXD": "Load Video MXD",
+    "SaveVideoMXD": "Save Video MXD",
+    "GroupVideoFramesMXD": "Group Video Frames MXD",
 }
