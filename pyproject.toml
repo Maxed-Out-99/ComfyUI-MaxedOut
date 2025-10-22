@@ -1,6 +1,6 @@
 [project]
 name = "maxedout"
-description = "Custom ComfyUI nodes used in Maxed Out workflows (SDXL, Flux, etc.)"
+description = "Custom ComfyUI nodes used in Maxed Out workflows (SDXL, Flux, Wan 2.2, etc.)"
 version = "1.0.0"
 license = {file = "LICENSE"} 
 # classifiers = [
@@ -28,9 +28,9 @@ Documentation = "https://github.com/Maxed-Out-99/ComfyUI-MaxedOut/wiki"
 "Bug Tracker" = "https://github.com/Maxed-Out-99/ComfyUI-MaxedOut/issues"
 
 [tool.comfy]
-PublisherId = ""
-DisplayName = "ComfyUI-MaxedOut"
-Icon = ""
+PublisherId = "maxedout"
+DisplayName = "Maxed Out"
+Icon = "https://github.com/Maxed-Out-99/ComfyUI-MaxedOut/blob/main/web/assets/maxedout_icon.png?raw=true"
 includes = [] 
 # "requires-comfyui" = ">=1.0.0"  # ComfyUI version compatibility
 
