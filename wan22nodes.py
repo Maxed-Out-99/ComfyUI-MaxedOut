@@ -1351,50 +1351,42 @@ class WAN22_I2V_Image_Scaler_MXD:
 
     def _pick_bucket(self, iw, ih, tier, crop_to_fit):
         in_ar = _ar(iw, ih)
-        is_squareish = abs(in_ar - 1.0) <= SQUARE_TOL
+        is_squareish = _is_squareish(iw, ih)
         is_landscape = iw >= ih
 
-        if tier == "720p":
-            # --- Always force square → 720x720 ---
-            if is_squareish:
+        # --- Square images always map to fixed square buckets ---
+        if is_squareish:
+            if tier == "720p":
                 return (720, 720)
+            else:
+                # both Auto and 480p get 624x624
+                return (624, 624)
 
-            # --- Normal 16:9 / 9:16 handling ---
-            buckets = BUCKETS_720.copy()
-            if not is_squareish:
-                # lock orientation
-                buckets = [(1280, 720)] if is_landscape else [(720, 1280)]
+        # --- Non-square images below ---
+        if tier == "720p":
+            buckets = [(1280, 720)] if is_landscape else [(720, 1280)]
             return _closest_bucket(iw, ih, buckets, cover=crop_to_fit)
 
         if tier == "480p":
-            buckets = BUCKETS_480.copy()
-            if not is_squareish:
-                buckets = [(832,480)] if is_landscape else [(480,832)]
-            elif is_squareish:
-                buckets.append((624,624))
+            buckets = [(832,480)] if is_landscape else [(480,832)]
             return _closest_bucket(iw, ih, buckets, cover=crop_to_fit)
 
-        # Auto mode
-        if is_squareish:
-            return (624,624)
-        buckets = BUCKETS_720 if max(iw,ih)>720 else BUCKETS_480
-        if not is_squareish:
-            buckets = [(b[0],b[1]) for b in buckets if (b[0]>b[1]) == is_landscape]
+        # Auto mode: pick 480 or 720 family depending on size
+        buckets = BUCKETS_720 if max(iw, ih) > 720 else BUCKETS_480
+        buckets = [(b[0], b[1]) for b in buckets if (b[0] > b[1]) == is_landscape]
         return _closest_bucket(iw, ih, buckets, cover=crop_to_fit)
 
     def scale(self, image, tier="Auto", crop_to_fit=False):
         _, ih, iw, _ = image.shape
         bw, bh = self._pick_bucket(iw, ih, tier, crop_to_fit)
-        # Buckets are canonical; ensure they are /16 and safe
+        is_squareish = _is_squareish(iw, ih)
+        if is_squareish:
+            crop_to_fit = False
         bw, bh = _safe_hw(_ceil16(bw), _ceil16(bh)) if crop_to_fit else _safe_hw(_floor16(bw), _floor16(bh))
-
         if crop_to_fit:
-            # Cover → center crop to exact (bw,bh). No padding.
             out = _resize_then_center_crop(image, bw, bh)
         else:
-            # Fit inside → return resized (tw,th) only. No padding.
             out, _, _ = _resize_fit_inside(image, bw, bh)
-
         return (out,)
     
 class Frames_Select_End_MXD:
