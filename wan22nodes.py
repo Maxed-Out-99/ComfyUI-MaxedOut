@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, re, glob, json, hashlib, uuid, math
+import os, re, glob, json, hashlib
 from typing import Any, Dict, Tuple, Optional, List, Union
 
 import torch
@@ -12,16 +12,13 @@ import comfy.utils
 import comfy.model_management
 from comfy.cli_args import args
 from nodes import KSamplerAdvanced
-import node_helpers
-import nodes
+import node_helpers, nodes
 
 # Comfy API
 from comfy_api.latest import io, ui
 from comfy_api.input import VideoInput
 from comfy_api.input_impl import VideoFromFile, VideoFromComponents
 from comfy_api.util import VideoComponents, VideoContainer, VideoCodec
-
-import imageio.v3 as iio
 
 # ---------- SaveLatent (Comfy-only; saves into input/latents) ----------
 class SaveLatentMXD:
@@ -1174,54 +1171,44 @@ class LoadLatents_FromFolder_I2V_MXD(LoadLatents_FromFolder_WithParams):
 
     
 # ---------- WAN 2.2 Image to Video (no scaling; expects pre-sized input) ----------
-class WanImageToVideoMXD:
-    """
-    WAN 2.2 Image → Video (MXD)
-    ⚙️ No scaling — expects pre-sized input.
-    """
 
-    TITLE = "WAN Image to Video MXD (No Scaling)"
-    CATEGORY = "conditioning/video_models"
-    DESCRIPTION = "Encodes a pre-scaled image for WAN 2.2 video conditioning."
-
-    RETURN_TYPES = ("CONDITIONING", "CONDITIONING", "LATENT")
-    RETURN_NAMES = ("positive", "negative", "latent")
-    FUNCTION = "run"
+class Wan22ImageToVideoMXD(io.ComfyNode):
+    @classmethod
+    def define_schema(cls):
+        return io.Schema(
+            node_id="Wan22ImageToVideoMXD",
+            category="conditioning/video_models",
+            description="WAN 2.2 Image → Video (no scaling, no clip vision)",
+            inputs=[
+                io.Conditioning.Input("positive"),
+                io.Conditioning.Input("negative"),
+                io.Vae.Input("vae"),
+                io.Int.Input("length", default=81, min=1, max=16384, step=4),
+                io.Int.Input("batch_size", default=1, min=1, max=4096),
+                io.Image.Input("start_image", optional=False),
+            ],
+            outputs=[
+                io.Conditioning.Output(display_name="positive"),
+                io.Conditioning.Output(display_name="negative"),
+                io.Latent.Output(display_name="latent"),
+            ],
+        )
 
     @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "positive": ("CONDITIONING",),
-                "negative": ("CONDITIONING",),
-                "vae": ("VAE",),
-                "length": ("INT", {"default": 81, "min": 1, "max": 16384, "step": 4}),
-                "batch_size": ("INT", {"default": 1, "min": 1, "max": 4096}),
-            },
-            "optional": {
-                "clip_vision_output": ("CLIP_VISION_OUTPUT",),
-                "start_image": ("IMAGE",),
-            }
-        }
-
-    def run(self, positive, negative, vae, length, batch_size,
-            clip_vision_output=None, start_image=None):
-
+    def execute(cls, positive, negative, vae, length, batch_size, start_image) -> io.NodeOutput:
         if start_image is None:
-            raise ValueError("start_image must be provided (already scaled).")
+            raise ValueError("start_image must be provided (already pre-sized).")
 
-        # dims from the provided (pre-scaled) image
         frames_in, ih, iw, ch = start_image.shape
         frames_used = min(frames_in, length)
         t = ((length - 1) // 4) + 1
 
-        # latent grid sized off the spatial dims and length-derived t
         latent = torch.zeros(
             [batch_size, 16, t, ih // 8, iw // 8],
             device=comfy.model_management.intermediate_device()
         )
 
-        # ▶ Build a full-length (length, H, W, C) tensor and copy the given frames
+        # create placeholder image tensor
         image = torch.ones(
             (length, ih, iw, ch),
             device=start_image.device,
@@ -1229,10 +1216,10 @@ class WanImageToVideoMXD:
         ) * 0.5
         image[:frames_used] = start_image[:frames_used]
 
-        # ▶ Encode the full-length tensor so its latent T matches t
+        # encode using VAE
         concat_latent_image = vae.encode(image[:, :, :, :3])
 
-        # ▶ Make mask with T = t, and zero only the used frame-chunks
+        # mask zeros out the frames used
         mask = torch.ones(
             (1, 1, t, concat_latent_image.shape[-2], concat_latent_image.shape[-1]),
             device=image.device,
@@ -1247,12 +1234,8 @@ class WanImageToVideoMXD:
             negative, {"concat_latent_image": concat_latent_image, "concat_mask": mask}
         )
 
-        if clip_vision_output is not None:
-            positive = node_helpers.conditioning_set_values(positive, {"clip_vision_output": clip_vision_output})
-            negative = node_helpers.conditioning_set_values(negative, {"clip_vision_output": clip_vision_output})
-
-        return (positive, negative, {"samples": latent})
-    
+        out_latent = {"samples": latent}
+        return io.NodeOutput(positive, negative, out_latent)
 
 # ---- Canonical WAN 2.2 buckets ----
 BUCKETS_480 = [(832,480), (480,832), (624,624)]   # 16:9, 9:16, 1:1
@@ -1344,8 +1327,8 @@ class WAN22_I2V_Image_Scaler_MXD:
         return {
             "required": {
                 "image": ("IMAGE",),
-                "tier": (["Auto", "480p", "720p"], {"default": "Auto"}),
-                "crop_to_fit": ("BOOLEAN", {"default": False, "label_on": "Perfect Fit (Crops Edges)", "label_off": "Closest Fit (No Crop)"}),
+                "tier": (["Auto", "480p", "720p"], {"default": "480p"}),
+                "crop_to_fit": ("BOOLEAN", {"default": True, "label_on": "Perfect Fit (Crops Edges)", "label_off": "Closest Fit (No Crop)"}),
             }
         }
 
@@ -1549,60 +1532,6 @@ class LoadVideoMXD(io.ComfyNode):
         latest = cls._find_latest(video_path)
         return os.path.getmtime(latest)
 
-
-class LoadVideoMXD(io.ComfyNode):
-    @classmethod
-    def define_schema(cls):
-        input_dir = folder_paths.get_input_directory()
-        files = [f for f in os.listdir(input_dir) if os.path.isfile(os.path.join(input_dir, f))]
-        files = folder_paths.filter_files_content_types(files, ["video"])
-        return io.Schema(
-            node_id="LoadVideoMXD",
-            display_name="Load Video MXD",
-            category="image/video",
-            description="Always reloads the newest video with the same base name each time you run.",
-            inputs=[
-                io.Combo.Input(
-                    "file",
-                    options=sorted(files),
-                    upload=io.UploadType.video,
-                    tooltip="Pick or upload the base video. The newest version will be auto-loaded on next run."
-                ),
-            ],
-            outputs=[
-                io.Video.Output("video"),
-                io.String.Output("video_path"),
-            ],
-        )
-
-    @classmethod
-    def _find_latest(cls, base_path: str) -> str:
-        base_dir, base_filename = os.path.split(base_path)
-        base_name, _ = os.path.splitext(base_filename)
-        related = [
-            os.path.join(base_dir, f)
-            for f in os.listdir(base_dir)
-            if f.startswith(base_name) and os.path.isfile(os.path.join(base_dir, f))
-        ]
-        if not related:
-            return base_path
-        return max(related, key=os.path.getmtime)
-
-    @classmethod
-    def execute(cls, file):
-        video_path = folder_paths.get_annotated_filepath(file)
-        latest = cls._find_latest(video_path)
-        if latest != video_path:
-            print(f"[LoadVideoMXD] Reloading latest: {os.path.basename(latest)}")
-        return io.NodeOutput(VideoFromFile(latest), latest)
-
-    @classmethod
-    def fingerprint_inputs(cls, file):
-        video_path = folder_paths.get_annotated_filepath(file)
-        latest = cls._find_latest(video_path)
-        return os.path.getmtime(latest)
-
-
 class SaveVideoMXD(io.ComfyNode):
     @classmethod
     def define_schema(cls):
@@ -1719,126 +1648,59 @@ class GroupVideoFramesMXD:
         print(f"[GroupVideoFramesMXD] Split {total} frames into {len(grouped_tensors)} groups of up to {group_size}.")
         return (grouped_tensors,)
 
-import os
-import torch
-from comfy_api.latest import io, ui
-from comfy_api.util import VideoComponents, VideoContainer, VideoCodec
-from comfy_api.input_impl import VideoFromFile, VideoFromComponents
-import folder_paths
-from comfy.cli_args import args
-
-
-class SaveAndMergeWhenComplete_MXD(io.ComfyNode):
-    """
-    Saves batched video parts and merges them automatically once all expected parts are present.
-    """
-
+class Wan22FirstLastImageToVideoMXD(io.ComfyNode):
     @classmethod
     def define_schema(cls):
         return io.Schema(
-            node_id="SaveAndMergeWhenComplete_MXD",
-            display_name="Save & Merge When Complete (MXD)",
-            category="MXD/video",
-            description="Saves each incoming video part, and merges all parts once the expected count is reached.",
+            node_id="Wan22FirstLastImageToVideoMXD",
+            category="conditioning/video_models",
             inputs=[
-                io.Video.Input("video", tooltip="Video to save (one per batch item)."),
-                io.String.Input(
-                    "folder_name",
-                    default="temp_batch_merge",
-                    tooltip="Subfolder under output/video/ to save temporary parts."
-                ),
-                io.Int.Input(
-                    "expected_parts",
-                    default=2,
-                    min=1,
-                    max=9999,
-                    tooltip="Total number of parts to wait for before merging."
-                ),
-                io.Combo.Input(
-                    "format",
-                    options=VideoContainer.as_input(),
-                    default="auto",
-                    tooltip="Container format for the saved videos."
-                ),
-                io.Combo.Input(
-                    "codec",
-                    options=VideoCodec.as_input(),
-                    default="auto",
-                    tooltip="Codec to use for the video."
-                ),
+                io.Conditioning.Input("positive"),
+                io.Conditioning.Input("negative"),
+                io.Vae.Input("vae"),
+                io.Int.Input("length", default=81, min=1, max=nodes.MAX_RESOLUTION, step=4),
+                io.Int.Input("batch_size", default=1, min=1, max=4096),
+                io.Image.Input("start_image", optional=True),
+                io.Image.Input("end_image", optional=True),
             ],
             outputs=[
-                io.String.Output("final_video_path", tooltip="Full path of the merged video (only once complete)."),
+                io.Conditioning.Output(display_name="positive"),
+                io.Conditioning.Output(display_name="negative"),
+                io.Latent.Output(display_name="latent"),
             ],
-            hidden=[io.Hidden.prompt, io.Hidden.extra_pnginfo],
-            is_output_node=False,
         )
 
     @classmethod
-    def execute(cls, video, folder_name, expected_parts, format, codec) -> io.NodeOutput:
-        output_dir = os.path.join(folder_paths.get_output_directory(), "video", folder_name)
-        os.makedirs(output_dir, exist_ok=True)
+    def execute(cls, positive, negative, vae, length, batch_size, start_image=None, end_image=None) -> io.NodeOutput:
+        spacial_scale = vae.spacial_compression_encode()
 
-        # --- Save incoming video part ---
-        part_index = len([f for f in os.listdir(output_dir) if f.endswith(".mp4")])
-        part_path = os.path.join(output_dir, f"part_{part_index+1:03d}.mp4")
+        # Assume incoming images are already pre-sized by upstream nodes.
+        height, width = start_image.shape[1], start_image.shape[2] if start_image is not None else (vae.latent_channels * spacial_scale, vae.latent_channels * spacial_scale)
 
-        # --- Metadata (same as SaveVideo) ---
-        saved_metadata = None
-        if not args.disable_metadata:
-            metadata = {}
-            if cls.hidden.extra_pnginfo is not None:
-                metadata.update(cls.hidden.extra_pnginfo)
-            if cls.hidden.prompt is not None:
-                metadata["prompt"] = cls.hidden.prompt
-            if metadata:
-                saved_metadata = metadata
-
-        video.save_to(part_path, format=format, codec=codec, metadata=saved_metadata)
-        print(f"[SaveAndMergeWhenComplete_MXD] 💾 Saved part {part_index+1}/{expected_parts} → {part_path}")
-
-        # --- Check how many parts exist ---
-        part_files = sorted([
-            os.path.join(output_dir, f)
-            for f in os.listdir(output_dir)
-            if f.lower().endswith(".mp4")
-        ])
-
-        if len(part_files) < expected_parts:
-            print(f"[SaveAndMergeWhenComplete_MXD] Waiting for all parts ({len(part_files)}/{expected_parts})...")
-            return io.NodeOutput(final_video_path="")  # Not ready yet
-
-        # ✅ All parts present → merge them
-        print(f"[SaveAndMergeWhenComplete_MXD] All {expected_parts} parts found. Starting merge...")
-
-        comp_ref = VideoFromFile(part_files[0]).get_components()
-        all_frames = []
-        all_audio = []
-        frame_rate = comp_ref.frame_rate
-
-        for path in part_files:
-            vid = VideoFromFile(path)
-            comp = vid.get_components()
-            frames = torch.stack(comp.images) if isinstance(comp.images, list) else comp.images
-            all_frames.append(frames)
-            if comp.audio is not None:
-                all_audio.append(comp.audio)
-
-        merged_frames = torch.cat(all_frames, dim=0)
-        merged_audio = torch.cat(all_audio, dim=1) if all_audio else None
-
-        combined_video = VideoFromComponents(
-            VideoComponents(images=merged_frames, audio=merged_audio, frame_rate=frame_rate)
+        latent = torch.zeros(
+            [batch_size, vae.latent_channels, ((length - 1) // 4) + 1, height // spacial_scale, width // spacial_scale],
+            device=comfy.model_management.intermediate_device()
         )
 
-        final_path = os.path.join(output_dir, "merged_final.mp4")
-        combined_video.save_to(final_path, format=format, codec=codec, metadata=saved_metadata)
+        image = torch.ones((length, height, width, 3)) * 0.5
+        mask = torch.ones((1, 1, latent.shape[2] * 4, latent.shape[-2], latent.shape[-1]))
 
-        print(f"[SaveAndMergeWhenComplete_MXD] ✅ Merged {expected_parts} parts → {final_path}")
+        if start_image is not None:
+            image[:start_image.shape[0]] = start_image
+            mask[:, :, :start_image.shape[0] + 3] = 0.0
 
-        return io.NodeOutput(final_path)
+        if end_image is not None:
+            image[-end_image.shape[0]:] = end_image
+            mask[:, :, -end_image.shape[0]:] = 0.0
 
+        concat_latent_image = vae.encode(image[:, :, :, :3])
+        mask = mask.view(1, mask.shape[2] // 4, 4, mask.shape[3], mask.shape[4]).transpose(1, 2)
 
+        positive = node_helpers.conditioning_set_values(positive, {"concat_latent_image": concat_latent_image, "concat_mask": mask})
+        negative = node_helpers.conditioning_set_values(negative, {"concat_latent_image": concat_latent_image, "concat_mask": mask})
+
+        out_latent = {"samples": latent}
+        return io.NodeOutput(positive, negative, out_latent)
 
 # ---------- Node registration ----------
 NODE_CLASS_MAPPINGS = {
@@ -1850,7 +1712,7 @@ NODE_CLASS_MAPPINGS = {
     "SaveLatent_I2V_MXD": SaveLatent_I2V_MXD,
     "LoadLatent_I2V_MXD": LoadLatent_I2V_MXD,
     "LoadLatents_FromFolder_I2V_MXD": LoadLatents_FromFolder_I2V_MXD,
-    "WanImageToVideoMXD": WanImageToVideoMXD,
+    "Wan22ImageToVideoMXD": Wan22ImageToVideoMXD,
     "WAN22_I2V_Image_Scaler_MXD": WAN22_I2V_Image_Scaler_MXD,
     "Frames_Select_End_MXD": Frames_Select_End_MXD,
     "Frames_Remove_From_Start_MXD": Frames_Remove_From_Start_MXD,
@@ -1858,6 +1720,7 @@ NODE_CLASS_MAPPINGS = {
     "LoadVideoMXD": LoadVideoMXD,
     "SaveVideoMXD": SaveVideoMXD,
     "GroupVideoFramesMXD": GroupVideoFramesMXD,
+    "Wan22FirstLastImageToVideoMXD": Wan22FirstLastImageToVideoMXD,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -1869,12 +1732,13 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SaveLatent_I2V_MXD": "Save Latent I2V MXD",
     "LoadLatent_I2V_MXD": "Load Latent I2V MXD",
     "LoadLatents_FromFolder_I2V_MXD": "Load Latent Batch I2V MXD",
-    "WanImageToVideoMXD": "WAN Image to Video MXD",
-    "WAN22_I2V_Image_Scaler_MXD": "WAN 2.2 I2V Image Scaler MXD",
+    "Wan22ImageToVideoMXD": "Wan 2.2 Image to Video MXD",
+    "WAN22_I2V_Image_Scaler_MXD": "Wan 2.2 I2V Image Scaler MXD",
     "Frames_Select_End_MXD": "Frames Select End MXD",
     "Frames_Remove_From_Start_MXD": "Frames Remove From Start MXD",
     "CombineVideos_MXD": "Combine Videos MXD",
     "LoadVideoMXD": "Load Video MXD",
     "SaveVideoMXD": "Save Video MXD",
     "GroupVideoFramesMXD": "Group Video Frames MXD",
+    "Wan22FirstLastImageToVideoMXD": "Wan 2.2 First/Last Image to Video MXD",
 }
