@@ -289,7 +289,6 @@ class LoadLatent_WithParams:
         options = [os.path.relpath(f, latents_root).replace(os.sep, "/") for f in files]
 
         # live enums from KSamplerAdvanced so values wire cleanly
-        from nodes import KSamplerAdvanced
         ks_inputs = KSamplerAdvanced.INPUT_TYPES().get("required", {})
         samplers_enum   = ks_inputs.get("sampler_name", ("STRING",))[0]
         schedulers_enum = ks_inputs.get("scheduler", ("STRING",))[0]
@@ -511,7 +510,6 @@ class LoadLatent_WithParams:
             return f"Invalid latent file: {latent}"
         return True
 
-
 # ---------- Load multiple latents from a folder (WITH Comfy params, list outputs, video-safe) ----------
 class LoadLatents_FromFolder_WithParams:
     DESCRIPTION = """
@@ -521,40 +519,65 @@ class LoadLatents_FromFolder_WithParams:
     """
     TITLE = "Load Latents (Folder, With Params)"
     CATEGORY = "MXD/Latents"
-    RETURN_TYPES  = ("FLOAT", "STRING", "STRING", "LATENT", "INT", "FLOAT", "STRING", "STRING", "INT", "STRING")
-    RETURN_NAMES  = ("shift","positive","negative","samples","steps","cfg","sampler_name","scheduler","end_at_step","filename_prefix")
-    OUTPUT_IS_LIST = (True,     True,      True,      True,    True,   True,           True,        True,          True,   True)
+    RETURN_TYPES  = (
+        "FLOAT", 
+        "STRING",  # positive
+        "STRING",  # negative
+        "LATENT",
+        "INT",
+        "FLOAT",
+        "STRING",
+        "STRING",
+        "INT",
+        "STRING"
+    )
+    RETURN_NAMES  = (
+        "shift",
+        "positive",
+        "negative",
+        "samples",
+        "steps",
+        "cfg",
+        "sampler_name",
+        "scheduler",
+        "end_at_step",
+        "filename_prefix"
+    )
+    OUTPUT_IS_LIST = (True,) * 10
     FUNCTION = "load_batch"
 
     @classmethod
     def INPUT_TYPES(s):
         latents_root = os.path.join(folder_paths.get_input_directory(), "latents")
         os.makedirs(latents_root, exist_ok=True)
-        subs = [""] + sorted([d for d in os.listdir(latents_root)
-                              if os.path.isdir(os.path.join(latents_root, d))])
+        subs = [""] + sorted([
+            d for d in os.listdir(latents_root)
+            if os.path.isdir(os.path.join(latents_root, d))
+        ])
 
-        # live enums from KSamplerAdvanced so values wire cleanly
+        # 🔧 FIX: safely import enums inside function to avoid overwriting RETURN_TYPES
+        from nodes import KSamplerAdvanced
         ks_inputs = KSamplerAdvanced.INPUT_TYPES().get("required", {})
         samplers_enum   = ks_inputs.get("sampler_name", ("STRING",))[0]
         schedulers_enum = ks_inputs.get("scheduler", ("STRING",))[0]
 
-        # overwrite with live enums
+        # ✅ Only swap the two enum fields, preserve other return types
         s.RETURN_TYPES = (
-            "FLOAT",   # shift
-            "STRING",  # positive
-            "STRING",  # negative
+            "FLOAT",
+            "STRING",
+            "STRING",
             "LATENT",
             "INT",
             "FLOAT",
             samplers_enum,
             schedulers_enum,
             "INT",
-            "STRING",  # filename_prefix
+            "STRING",
         )
         s._SAMPLERS_ENUM = samplers_enum
         s._SCHEDULERS_ENUM = schedulers_enum
 
-        return {"required": {"subfolder": (subs, )}}
+        return {"required": {"subfolder": (subs,)}}
 
     def _coerce_enum(self, value, enum_values):
         try:
@@ -563,53 +586,30 @@ class LoadLatents_FromFolder_WithParams:
             return value
 
     def _strip_counter(self, name: str) -> str:
-        # Only strip the trailing pattern we generate when saving: "_<5digits>_"
-        # Preserve numeric-only base names like "96".
         stem, _ = os.path.splitext(name)
         m = re.match(r"^(.*?)(?:_\d{5}_)$", stem)
         return m.group(1) if m else stem
     
     def _extract_sd3_shift(self, meta: dict, prompt_json: dict | None) -> float:
-        """
-        Find SD3 'shift' in several places:
-        1) flat meta["shift"]
-        2) nested in prompt/workflow JSON:
-        - nodes[].{type|class_type} == "ModelSamplingSD3" -> inputs.shift or widgets_values[0]
-        - runtime-style prompt dict mapping IDs -> {..., class_type: "ModelSamplingSD3"}
-        Falls back to 5.0 if not found.
-        """
         def try_float(x):
-            try:
-                return float(x)
-            except Exception:
-                return None
+            try: return float(x)
+            except Exception: return None
 
-        # 1) flat meta
         if isinstance(meta, dict):
             v = try_float(meta.get("shift"))
-            if v is not None:
-                return v
+            if v is not None: return v
 
-        # parse any JSON-like strings present in meta
         def safe_load(x):
-            try:
-                return _safe_json_loads(x) if isinstance(x, str) else x
-            except Exception:
-                return None
+            try: return _safe_json_loads(x) if isinstance(x, str) else x
+            except Exception: return None
 
-        # Search helper over various JSON shapes
         def search_container(obj):
-            # Direct dict containing shift
             if isinstance(obj, dict):
                 if "shift" in obj:
                     v = try_float(obj.get("shift"))
-                    if v is not None:
-                        return v
-
-                # Comfy "nodes": [ {...}, ... ]
+                    if v is not None: return v
                 nodes = obj.get("nodes")
                 if isinstance(nodes, list):
-                    # take the last SD3 node (most recent in graph)
                     ms_nodes = [n for n in nodes if isinstance(n, dict) and (
                         n.get("type") == "ModelSamplingSD3" or
                         n.get("class_type") == "ModelSamplingSD3" or
@@ -617,74 +617,52 @@ class LoadLatents_FromFolder_WithParams:
                     )]
                     if ms_nodes:
                         nd = ms_nodes[-1]
-                        # Prefer explicit inputs.shift if present and literal
                         inp = nd.get("inputs")
                         if isinstance(inp, dict) and "shift" in inp:
                             vv = inp["shift"]
-                            # ignore connection like [node_id, idx]
                             if not isinstance(vv, (list, tuple)):
                                 v2 = try_float(vv)
-                                if v2 is not None:
-                                    return v2
-                        # Fallback: first widget is shift for SD3 (as seen in your JSON)
+                                if v2 is not None: return v2
                         w = nd.get("widgets_values")
                         if isinstance(w, list) and len(w) >= 1:
                             v2 = try_float(w[0])
-                            if v2 is not None:
-                                return v2
-
-                # Runtime prompt map: {"42": {"class_type":"ModelSamplingSD3", "inputs":{...}, "widgets_values":[...]}, ...}
-                # Heuristic: values that are dicts with class_type keys
+                            if v2 is not None: return v2
                 has_ct = [v for v in obj.values() if isinstance(v, dict) and "class_type" in v]
-                if has_ct:
-                    for nd in has_ct:
-                        if nd.get("class_type") == "ModelSamplingSD3":
-                            inp = nd.get("inputs", {})
-                            if isinstance(inp, dict) and "shift" in inp:
-                                vv = inp["shift"]
-                                if not isinstance(vv, (list, tuple)):
-                                    v2 = try_float(vv)
-                                    if v2 is not None:
-                                        return v2
-                            w = nd.get("widgets_values")
-                            if isinstance(w, list) and len(w) >= 1:
-                                v2 = try_float(w[0])
-                                if v2 is not None:
-                                    return v2
-
-            # Lists / nested
+                for nd in has_ct:
+                    if nd.get("class_type") == "ModelSamplingSD3":
+                        inp = nd.get("inputs", {})
+                        if isinstance(inp, dict) and "shift" in inp:
+                            vv = inp["shift"]
+                            if not isinstance(vv, (list, tuple)):
+                                v2 = try_float(vv)
+                                if v2 is not None: return v2
+                        w = nd.get("widgets_values")
+                        if isinstance(w, list) and len(w) >= 1:
+                            v2 = try_float(w[0])
+                            if v2 is not None: return v2
             if isinstance(obj, list):
                 for it in obj:
                     v = search_container(it)
-                    if v is not None:
-                        return v
+                    if v is not None: return v
             return None
 
-        # 2) Look in provided prompt_json
         v = search_container(prompt_json)
-        if v is not None:
-            return v
+        if v is not None: return v
 
-        # Also look in common meta fields that can hold the full workflow/prompt
         for key in ("workflow", "prompt", "extra_pnginfo"):
             candidate = meta.get(key)
             cand_obj = safe_load(candidate)
-            if isinstance(cand_obj, dict) or isinstance(cand_obj, list):
+            if isinstance(cand_obj, (dict, list)):
                 v = search_container(cand_obj)
-                if v is not None:
-                    return v
-            # extra_pnginfo can nest "workflow"/"prompt" again
+                if v is not None: return v
             if isinstance(cand_obj, dict):
                 for subkey in ("workflow", "prompt"):
                     sub = safe_load(cand_obj.get(subkey))
-                    if isinstance(sub, dict) or isinstance(sub, list):
+                    if isinstance(sub, (dict, list)):
                         v = search_container(sub)
-                        if v is not None:
-                            return v
+                        if v is not None: return v
 
-        # default
         return 5.0
-
 
     def load_batch(self, subfolder):
         latents_root = os.path.join(folder_paths.get_input_directory(), "latents")
@@ -694,43 +672,30 @@ class LoadLatents_FromFolder_WithParams:
         if not files:
             raise RuntimeError(f"[LoadLatents_FromFolder_WithParams] No .latent files found in '{base}'.")
 
-        shifts = []
-        samples_list, positives, negatives = [], [], []
-        steps_list, cfgs, samplers, schedulers, end_steps = [], [], [], [], []
-        filename_prefixes = []
+        shifts, samples_list, positives, negatives = [], [], [], []
+        steps_list, cfgs, samplers, schedulers, end_steps, filename_prefixes = [], [], [], [], [], []
 
         for path in files:
             sample_dict, meta, _ = _load_latent_file(path)
             t = sample_dict["samples"]
 
-            if isinstance(t, torch.Tensor) and t.dim() >= 4 and t.size(0) > 1:
-                slices = [t[i:i+1].contiguous() for i in range(t.size(0))]
-            else:
-                slices = [t if (isinstance(t, torch.Tensor) and t.dim() >= 4 and t.size(0) == 1)
-                          else t.unsqueeze(0)]
+            slices = [t[i:i+1].contiguous() for i in range(t.size(0))] if (t.dim() >= 4 and t.size(0) > 1) else [t.unsqueeze(0)]
 
             prompt_json = _safe_json_loads(meta.get("prompt"))
             pos, neg, n_steps, cfg, sampler_name, scheduler, end_at_step = _extract_params_from_prompt_json(prompt_json or {})
-
             sampler_name = self._coerce_enum(sampler_name, getattr(self.__class__, "_SAMPLERS_ENUM", ()))
-            scheduler    = self._coerce_enum(scheduler,    getattr(self.__class__, "_SCHEDULERS_ENUM", ()))
-
-            # folder part comes from the selected subfolder
-            folder_part = subfolder if subfolder else ""
-            # full basename with extension
-            base_name = os.path.basename(path)
-            # strip trailing counters like _00005
-            clean_stem = self._strip_counter(base_name)
-            # combine into prefix
-            prefix = os.path.join(folder_part, clean_stem) if folder_part else clean_stem
+            scheduler    = self._coerce_enum(scheduler, getattr(self.__class__, "_SCHEDULERS_ENUM", ()))
             shift_val = self._extract_sd3_shift(meta, prompt_json)
 
+            folder_part = subfolder if subfolder else ""
+            clean_stem = self._strip_counter(os.path.basename(path))
+            prefix = os.path.join(folder_part, clean_stem) if folder_part else clean_stem
 
             for sl in slices:
                 shifts.append(float(shift_val))
-                samples_list.append({"samples": sl})
                 positives.append(pos)
                 negatives.append(neg)
+                samples_list.append({"samples": sl})
                 steps_list.append(int(n_steps))
                 cfgs.append(float(cfg))
                 samplers.append(sampler_name)
@@ -739,23 +704,7 @@ class LoadLatents_FromFolder_WithParams:
                 filename_prefixes.append(prefix)
 
         n = len(samples_list)
-        if (
-            n == 0
-            or len(shifts) != n
-            or any(
-                l != n
-                for l in (
-                    len(positives),
-                    len(negatives),
-                    len(steps_list),
-                    len(cfgs),
-                    len(samplers),
-                    len(schedulers),
-                    len(end_steps),
-                    len(filename_prefixes),
-                )
-            )
-        ):
+        if n == 0 or any(len(lst) != n for lst in (shifts, positives, negatives, steps_list, cfgs, samplers, schedulers, end_steps, filename_prefixes)):
             raise RuntimeError("[LoadLatents_FromFolder_WithParams] Internal length mismatch.")
 
         return (
@@ -1379,18 +1328,45 @@ def _resize_fit_inside(img, out_w, out_h):
     return resized, tw, th
 
 # ---------- WAN 2.2 Image Scaler (no padding; fit or crop modes; square-aware) ----------
+# Known WAN 2.2 "safe" video buckets (no-pad, multiples of 16)
+_WAN22_VALID_RES = {
+    (832, 480), (480, 832),   # 480p landscape/portrait
+    (1280, 720), (720, 1280), # 720p landscape/portrait
+    (624, 624),               # square ~480-tier
+    (720, 720),               # square 720-tier
+}
+
+def _wan22_is_valid_dim(w, h):
+    """Return True if (w, h) is an exact WAN 2.2 bucket we consider safe."""
+    return (w, h) in _WAN22_VALID_RES
+
+
 class WAN22_I2V_Image_Scaler_MXD:
     """
     MXD Image Scaler for WAN 2.2 (NO PADDING)
+
     - Modes: Auto / 480p / 720p
     - Fit (no pad): proportional resize ≤ target; returns resized dims.
     - Crop (no pad): resize-to-cover then center-crop to exact target.
+
     - Square handling:
         * Auto & 480p: ~square → 624×624
         * 720p: ~square → 720×720
+
     - Auto logic:
         * Chooses 480p or 720p bucket based on minimal scaling.
-        * Never upscales if already fits or is near a lower bucket.
+        * Prefers 480p for small inputs so we don't jump to 720p unnecessarily.
+
+    - Video-safe guardrails:
+        * If input is already an exact WAN 2.2 bucket:
+              832×480, 480×832,
+              1280×720, 720×1280,
+              624×624, 720×720
+          → the image is returned **unchanged** (perfect for video-extend “last frame” use).
+
+        * If input area is far outside 480p/720p range, raises a clear error
+          explaining that WAN 2.2 does not support arbitrary resolutions and
+          they should use something near 480p or 720p.
     """
 
     TITLE = "Image Bucket Scaler MXD (No Pad)"
@@ -1425,7 +1401,8 @@ class WAN22_I2V_Image_Scaler_MXD:
             if tier == "720p":
                 return (720, 720)
             else:
-                return (624, 624)  # Auto & 480p share same square bucket
+                # Auto & 480p share same square bucket
+                return (624, 624)
 
         # --- Explicit 480p tier ---
         if tier == "480p":
@@ -1441,14 +1418,15 @@ class WAN22_I2V_Image_Scaler_MXD:
         buckets_480 = [(832, 480)] if is_landscape else [(480, 832)]
         buckets_720 = [(1280, 720)] if is_landscape else [(720, 1280)]
 
-        iw_ih = iw * ih
-        area_480 = 832 * 480
-        area_720 = 1280 * 720
+        iw_ih     = iw * ih
+        area_480  = 832 * 480
+        area_720  = 1280 * 720
 
         scale_to_480 = abs(iw_ih - area_480) / area_480
         scale_to_720 = abs(iw_ih - area_720) / area_720
 
-        # --- Rule 1: never upscale small images ---
+        # --- Rule 1: small images → stay in 480p bucket (avoid jumping to 720p) ---
+        # (We still allow upscaling 640x360 → 832x480, etc.)
         if iw <= 832 and ih <= 480:
             return _closest_bucket(iw, ih, buckets_480, cover=crop_to_fit)
 
@@ -1462,24 +1440,58 @@ class WAN22_I2V_Image_Scaler_MXD:
     # Main function
     # -----------------------------
     def scale(self, image, tier="Auto", crop_to_fit=False):
+        # image: [B, H, W, C]
         _, ih, iw, _ = image.shape
+
+        # 1) VIDEO-EXTEND SAFETY: If the frame is already a known WAN 2.2 bucket,
+        #    just passthrough. This makes "use last frame from WAN video" bulletproof:
+        #    no chance of re-scaling to the wrong tier.
+        if _wan22_is_valid_dim(iw, ih):
+            # Already WAN-safe (832x480, 1280x720, 624x624, 720x720, + portrait variants)
+            return (image,)
+
+        # 2) HARD BOUNDS: if the resolution is way off from WAN 2.2's expected range,
+        #    error early with a clear message instead of failing after a long video run.
+        area      = iw * ih
+        area_480  = 832 * 480        # ~399k
+        area_720  = 1280 * 720       # ~921k
+        min_area  = int(area_480 * 0.5)   # ~half of 480p bucket
+        max_area  = int(area_720 * 1.8)   # somewhat above 720p bucket
+
+        if area < min_area or area > max_area:
+            size_label = "small" if area < min_area else "large"
+            raise ValueError(
+                "[WAN22_I2V_Image_Scaler_MXD] Input resolution "
+                f"{iw}x{ih} is too {size_label} for WAN 2.2 video buckets.\n"
+                "WAN 2.2 works best around these ranges:\n"
+                "  • 480p tier ≈ 832×480 (or 480×832)\n"
+                "  • 720p tier ≈ 1280×720 (or 720×1280)\n"
+                "  • Squares: 624×624 or 720×720\n\n"
+                "Please use a source closer to 480p/720p, or first run it through "
+                "your WAN 2.2 workflow at one of those tiers. This check exists so "
+                "the workflow fails early here instead of deep inside WAN 2.2."
+            )
+
+        # 3) Normal bucket selection + scaling
         bw, bh = self._pick_bucket(iw, ih, tier, crop_to_fit)
         is_squareish = _is_squareish(iw, ih)
 
+        # Don't crop squares; just fit
         if is_squareish:
             crop_to_fit = False
 
-        # round to multiples of 16 for compatibility
         if crop_to_fit:
+            # crop case: bucket dims rounded up to multiples of 16
             bw, bh = _safe_hw(_ceil16(bw), _ceil16(bh))
             out = _resize_then_center_crop(image, bw, bh)
         else:
+            # fit case: bucket dims rounded down to multiples of 16
             bw, bh = _safe_hw(_floor16(bw), _floor16(bh))
             out, _, _ = _resize_fit_inside(image, bw, bh)
 
         return (out,)
-
     
+# ---------- MXD Frames Select Start/End (from start or end of sequence) ----------
 class Frames_Select_StartEnd_MXD:
     def __init__(self):
         pass
@@ -1495,6 +1507,12 @@ class Frames_Select_StartEnd_MXD:
                     "max": 10000,
                     "tooltip": "Number of frames to select"
                 }),
+                "offset": ("INT", {
+                    "default": 1,
+                    "min": 1,
+                    "max": 10000,
+                    "tooltip": "How far into the video to start selection (from start or end)"
+                }),
                 "mode": (["start", "end"], {
                     "default": "end",
                     "tooltip": "Select frames from the start or end of the sequence"
@@ -1507,17 +1525,25 @@ class Frames_Select_StartEnd_MXD:
     FUNCTION     = "main"
     CATEGORY     = "MXD/images"
 
-    def main(self, frames=None, count=10, mode="end"):
+    def main(self, frames=None, count=1, offset=1, mode="end"):
         total = frames.shape[0]
-        count = min(count, total)
+
+        # Clamp offset and count
+        offset = max(1, min(offset, total))
+        count = max(1, min(count, total - offset + 1))
 
         if mode == "start":
-            selected = frames[:count].clone()
-        else:
-            start = max(0, total - count)
-            selected = frames[start:].clone()
+            start_idx = offset - 1
+            end_idx = start_idx + count
+            selected = frames[start_idx:end_idx].clone()
+        else:  # mode == "end"
+            start_idx = max(0, total - offset - count + 1)
+            end_idx = start_idx + count
+            selected = frames[start_idx:end_idx].clone()
 
         return (selected,)
+    
+# ---------- MXD Frames Select Start/End (from start or end of sequence) ----------
 class Frames_Remove_From_Start_MXD:
     def __init__(self):
         pass
