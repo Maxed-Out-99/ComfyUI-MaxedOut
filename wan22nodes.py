@@ -20,6 +20,42 @@ from comfy_api.input import VideoInput
 from comfy_api.input_impl import VideoFromFile, VideoFromComponents
 from comfy_api.util import VideoComponents, VideoContainer, VideoCodec
 
+from server import PromptServer
+from aiohttp import web
+
+VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".avi"}
+
+routes = PromptServer.instance.routes
+
+@routes.get("/mxd/videos/input")
+async def mxd_list_input_videos(request):
+    """
+    Return a JSON list of *video* files under the input folder (relative paths),
+    sorted by last modified time (newest first) so the combo's 'first' entry
+    is always the latest render.
+    """
+    input_dir = folder_paths.get_input_directory()
+    entries = []
+
+    for root, _, filenames in os.walk(input_dir):
+        for name in filenames:
+            ext = os.path.splitext(name)[1].lower()
+            if ext in VIDEO_EXTS:
+                full = os.path.join(root, name)
+                rel = os.path.relpath(full, input_dir).replace("\\", "/")
+                try:
+                    mtime = os.path.getmtime(full)
+                except OSError:
+                    mtime = 0
+                entries.append((mtime, rel))
+
+    # 🔁 Sort newest → oldest, to match Comfy's internal behavior
+    entries.sort(key=lambda x: x[0], reverse=True)
+
+    files = [rel for _, rel in entries]
+    return web.json_response(files)
+
+
 # ---------- SaveLatent (Comfy-only; saves into input/latents) ----------
 class SaveLatentMXD:
     DESCRIPTION = """
@@ -283,10 +319,11 @@ class LoadLatent_WithParams:
             return value
 
     def _strip_counter(self, name: str) -> str:
+        # Only strip the trailing pattern we generate when saving: "_<5digits>_"
+        # Preserve numeric-only base names like "96".
         stem, _ = os.path.splitext(name)
-        while stem and (stem[-1] == '_' or stem[-1] == '-' or stem[-1].isdigit()):
-            stem = stem[:-1]
-        return stem
+        m = re.match(r"^(.*?)(?:_\d{5}_)$", stem)
+        return m.group(1) if m else stem
     
     def _extract_sd3_shift(self, meta: dict, prompt_json: dict | None) -> float:
         """
@@ -526,10 +563,11 @@ class LoadLatents_FromFolder_WithParams:
             return value
 
     def _strip_counter(self, name: str) -> str:
+        # Only strip the trailing pattern we generate when saving: "_<5digits>_"
+        # Preserve numeric-only base names like "96".
         stem, _ = os.path.splitext(name)
-        while stem and (stem[-1] == '_' or stem[-1] == '-' or stem[-1].isdigit()):
-            stem = stem[:-1]
-        return stem
+        m = re.match(r"^(.*?)(?:_\d{5}_)$", stem)
+        return m.group(1) if m else stem
     
     def _extract_sd3_shift(self, meta: dict, prompt_json: dict | None) -> float:
         """
@@ -732,7 +770,253 @@ class LoadLatents_FromFolder_WithParams:
             end_steps,
             filename_prefixes,
         )
+    
+class LoadLatent_I2V_MXD(LoadLatent_WithParams):
+    """
+    Same outputs as LoadLatent_WithParams plus two CONDITIONING outputs at the end.
+    Fixes sampler/scheduler enum wiring by setting enums on THIS subclass.
+    """
+    TITLE = "Load Latent I2V (With Params + Conditioning)"
+    CATEGORY = "MXD/Latents (I2V)"
+    FUNCTION = "load"
 
+    RETURN_TYPES = (
+        "FLOAT",         # shift
+        "CONDITIONING",  # positive conditioning
+        "CONDITIONING",  # negative conditioning
+        "LATENT",
+        "INT",
+        "FLOAT",
+        "STRING",
+        "STRING",
+        "INT",
+        "STRING",
+    )
+    RETURN_NAMES = (
+        "shift",
+        "positive",
+        "negative",
+        "samples",
+        "steps",
+        "cfg",
+        "sampler_name",
+        "scheduler",
+        "end_at_step",
+        "filename_prefix",
+    )
+
+    @classmethod
+    def INPUT_TYPES(s):
+        latents_root = os.path.join(folder_paths.get_input_directory(), "latents")
+        os.makedirs(latents_root, exist_ok=True)
+        files = glob.glob(os.path.join(latents_root, "**", "*.latent"), recursive=True)
+        files.sort()
+        # Clean dropdown display (no "latents/" prefix)
+        options = [os.path.relpath(f, latents_root).replace(os.sep, "/") for f in files]
+
+        ks_inputs = KSamplerAdvanced.INPUT_TYPES().get("required", {})
+        samplers_enum   = ks_inputs.get("sampler_name", ("STRING",))[0]
+        schedulers_enum = ks_inputs.get("scheduler",    ("STRING",))[0]
+
+        s.RETURN_TYPES = (
+            "FLOAT", "CONDITIONING", "CONDITIONING", "LATENT",
+            "INT", "FLOAT", samplers_enum, schedulers_enum,
+            "INT", "STRING",
+        )
+        s._SAMPLERS_ENUM   = samplers_enum
+        s._SCHEDULERS_ENUM = schedulers_enum
+
+        return {"required": {"latent": (options, )}}
+
+    @classmethod
+    def IS_CHANGED(s, latent):
+        # Fix path lookup (add "latents/" prefix back)
+        p = folder_paths.get_annotated_filepath(f"latents/{latent}")
+        m = hashlib.sha256()
+        with open(p, "rb") as f:
+            m.update(f.read())
+        side = p.replace(".latent", ".cond.pt")
+        if os.path.exists(side):
+            with open(side, "rb") as f:
+                m.update(f.read())
+        return m.digest().hex()
+
+    @classmethod
+    def VALIDATE_INPUTS(s, latent):
+        # Pass prefixed path to base validator
+        return LoadLatent_WithParams.VALIDATE_INPUTS(f"latents/{latent}")
+
+    def load(self, latent):
+        # Use base loader (add prefix so it finds the file)
+        base_tuple = super().load(latent)
+
+        # Load .cond.pt (conditioning data)
+        latent_path = folder_paths.get_annotated_filepath(f"latents/{latent}")
+        cond_path = latent_path.replace(".latent", ".cond.pt")
+
+        positive_conditioning, negative_conditioning = [], []
+        if os.path.exists(cond_path):
+            try:
+                d = torch.load(cond_path, map_location="cpu")
+                positive_conditioning = d.get("positive", [])
+                negative_conditioning = d.get("negative", [])
+            except Exception:
+                positive_conditioning, negative_conditioning = [], []
+
+        (
+            shift, _pos_text, _neg_text, samples,
+            steps, cfg, sampler_name, scheduler,
+            end_at_step, prefix,
+        ) = base_tuple
+
+        return (
+            shift, positive_conditioning, negative_conditioning,
+            samples, steps, cfg, sampler_name, scheduler,
+            end_at_step, prefix,
+        )
+    
+class LoadLatents_FromFolder_I2V_MXD(LoadLatents_FromFolder_WithParams):
+    """
+    Same as LoadLatents_FromFolder_WithParams, but includes CONDITIONING outputs
+    (positive/negative tensors) loaded from paired `.cond.pt` sidecar files.
+    """
+    TITLE = "Load Latents (Folder, I2V + Conditioning)"
+    CATEGORY = "MXD/Latents (I2V)"
+    FUNCTION = "load_batch_i2v"
+
+    # Types MUST declare CONDITIONING here, not STRING
+    RETURN_TYPES = (
+        "FLOAT",         # shift
+        "CONDITIONING",  # positive conditioning
+        "CONDITIONING",  # negative conditioning
+        "LATENT",
+        "INT",
+        "FLOAT",
+        "STRING",        # will be replaced with sampler enum in INPUT_TYPES
+        "STRING",        # will be replaced with scheduler enum in INPUT_TYPES
+        "INT",
+        "STRING",
+    )
+    RETURN_NAMES = (
+        "shift",
+        "positive",
+        "negative",
+        "samples",
+        "steps",
+        "cfg",
+        "sampler_name",
+        "scheduler",
+        "end_at_step",
+        "filename_prefix",
+    )
+
+    # Still a batch node
+    OUTPUT_IS_LIST = (True,) * 10
+
+    @classmethod
+    def INPUT_TYPES(s):
+        # Same folder logic as the base class
+        latents_root = os.path.join(folder_paths.get_input_directory(), "latents")
+        os.makedirs(latents_root, exist_ok=True)
+        subs = [""] + sorted([
+            d for d in os.listdir(latents_root)
+            if os.path.isdir(os.path.join(latents_root, d))
+        ])
+
+        # Pull live enums from KSamplerAdvanced so sampler/scheduler wire cleanly
+        from nodes import KSamplerAdvanced
+        ks_inputs = KSamplerAdvanced.INPUT_TYPES().get("required", {})
+        samplers_enum   = ks_inputs.get("sampler_name", ("STRING",))[0]
+        schedulers_enum = ks_inputs.get("scheduler",    ("STRING",))[0]
+
+        # IMPORTANT: keep CONDITIONING types, only swap the sampler/scheduler slots
+        s.RETURN_TYPES = (
+            "FLOAT",         # shift
+            "CONDITIONING",  # positive conditioning
+            "CONDITIONING",  # negative conditioning
+            "LATENT",
+            "INT",
+            "FLOAT",
+            samplers_enum,   # enum type for sampler_name
+            schedulers_enum, # enum type for scheduler
+            "INT",
+            "STRING",
+        )
+        s._SAMPLERS_ENUM   = samplers_enum
+        s._SCHEDULERS_ENUM = schedulers_enum
+
+        return {"required": {"subfolder": (subs, )}}
+
+    def load_batch_i2v(self, subfolder):
+        latents_root = os.path.join(folder_paths.get_input_directory(), "latents")
+        base = os.path.join(latents_root, subfolder) if subfolder else latents_root
+        files = glob.glob(os.path.join(base, "**", "*.latent"), recursive=True)
+        files.sort()
+        if not files:
+            raise RuntimeError(f"[LoadLatents_FromFolder_I2V_MXD] No .latent files found in '{base}'.")
+
+        shifts, samples_list = [], []
+        positives, negatives = [], []
+        steps_list, cfgs, samplers, schedulers, end_steps = [], [], [], [], []
+        filename_prefixes = []
+
+        for path in files:
+            sample_dict, meta, _ = _load_latent_file(path)
+            t = sample_dict["samples"]
+
+            if isinstance(t, torch.Tensor) and t.dim() >= 4 and t.size(0) > 1:
+                slices = [t[i:i+1].contiguous() for i in range(t.size(0))]
+            else:
+                slices = [t if (isinstance(t, torch.Tensor) and t.dim() >= 4 and t.size(0) == 1)
+                          else t.unsqueeze(0)]
+
+            prompt_json = _safe_json_loads(meta.get("prompt"))
+            pos, neg, n_steps, cfg, sampler_name, scheduler, end_at_step = \
+                _extract_params_from_prompt_json(prompt_json or {})
+
+            sampler_name = self._coerce_enum(sampler_name, getattr(self.__class__, "_SAMPLERS_ENUM", ()))
+            scheduler    = self._coerce_enum(scheduler,    getattr(self.__class__, "_SCHEDULERS_ENUM", ()))
+            shift_val    = self._extract_sd3_shift(meta, prompt_json)
+
+            # Load sidecar conditionings
+            cond_path = path.replace(".latent", ".cond.pt")
+            positive_conditioning, negative_conditioning = [], []
+            if os.path.exists(cond_path):
+                try:
+                    d = torch.load(cond_path, map_location="cpu")
+                    positive_conditioning = d.get("positive", [])
+                    negative_conditioning = d.get("negative", [])
+                except Exception:
+                    pass
+
+            folder_part = subfolder if subfolder else ""
+            clean_stem  = self._strip_counter(os.path.basename(path))
+            prefix      = os.path.join(folder_part, clean_stem) if folder_part else clean_stem
+
+            for sl in slices:
+                shifts.append(float(shift_val))
+                positives.append(positive_conditioning)
+                negatives.append(negative_conditioning)
+                samples_list.append({"samples": sl})
+                steps_list.append(int(n_steps))
+                cfgs.append(float(cfg))
+                samplers.append(sampler_name)
+                schedulers.append(scheduler)
+                end_steps.append(int(end_at_step))
+                filename_prefixes.append(prefix)
+
+        return (
+            shifts,
+            positives,
+            negatives,
+            samples_list,
+            steps_list,
+            cfgs,
+            samplers,
+            schedulers,
+            end_steps,
+            filename_prefixes,
+        )
 
 # ---------- Empty latent image generator (for video nodes) ----------
 class Wan2_2EmptyLatentImageMXD:
@@ -958,217 +1242,6 @@ class SaveLatent_I2V_MXD:
             temp_counter += 1
 
         return {"ui": {"images": results}}
-class LoadLatent_I2V_MXD(LoadLatent_WithParams):
-    """
-    Same outputs as LoadLatent_WithParams plus two CONDITIONING outputs at the end.
-    Fixes sampler/scheduler enum wiring by setting enums on THIS subclass.
-    """
-    TITLE = "Load Latent I2V (With Params + Conditioning)"
-    CATEGORY = "MXD/Latents (I2V)"
-    FUNCTION = "load"
-
-    RETURN_TYPES = (
-        "FLOAT",         # shift
-        "CONDITIONING",  # positive conditioning
-        "CONDITIONING",  # negative conditioning
-        "LATENT",
-        "INT",
-        "FLOAT",
-        "STRING",
-        "STRING",
-        "INT",
-        "STRING",
-    )
-    RETURN_NAMES = (
-        "shift",
-        "positive",
-        "negative",
-        "samples",
-        "steps",
-        "cfg",
-        "sampler_name",
-        "scheduler",
-        "end_at_step",
-        "filename_prefix",
-    )
-
-    @classmethod
-    def INPUT_TYPES(s):
-        latents_root = os.path.join(folder_paths.get_input_directory(), "latents")
-        os.makedirs(latents_root, exist_ok=True)
-        files = glob.glob(os.path.join(latents_root, "**", "*.latent"), recursive=True)
-        files.sort()
-        # Clean dropdown display (no "latents/" prefix)
-        options = [os.path.relpath(f, latents_root).replace(os.sep, "/") for f in files]
-
-        ks_inputs = KSamplerAdvanced.INPUT_TYPES().get("required", {})
-        samplers_enum   = ks_inputs.get("sampler_name", ("STRING",))[0]
-        schedulers_enum = ks_inputs.get("scheduler",    ("STRING",))[0]
-
-        s.RETURN_TYPES = (
-            "FLOAT", "CONDITIONING", "CONDITIONING", "LATENT",
-            "INT", "FLOAT", samplers_enum, schedulers_enum,
-            "INT", "STRING",
-        )
-        s._SAMPLERS_ENUM   = samplers_enum
-        s._SCHEDULERS_ENUM = schedulers_enum
-
-        return {"required": {"latent": (options, )}}
-
-    @classmethod
-    def IS_CHANGED(s, latent):
-        # Fix path lookup (add "latents/" prefix back)
-        p = folder_paths.get_annotated_filepath(f"latents/{latent}")
-        m = hashlib.sha256()
-        with open(p, "rb") as f:
-            m.update(f.read())
-        side = p.replace(".latent", ".cond.pt")
-        if os.path.exists(side):
-            with open(side, "rb") as f:
-                m.update(f.read())
-        return m.digest().hex()
-
-    @classmethod
-    def VALIDATE_INPUTS(s, latent):
-        # Pass prefixed path to base validator
-        return LoadLatent_WithParams.VALIDATE_INPUTS(f"latents/{latent}")
-
-    def load(self, latent):
-        # Use base loader (add prefix so it finds the file)
-        base_tuple = super().load(latent)
-
-        # Load .cond.pt (conditioning data)
-        latent_path = folder_paths.get_annotated_filepath(f"latents/{latent}")
-        cond_path = latent_path.replace(".latent", ".cond.pt")
-
-        positive_conditioning, negative_conditioning = [], []
-        if os.path.exists(cond_path):
-            try:
-                d = torch.load(cond_path, map_location="cpu")
-                positive_conditioning = d.get("positive", [])
-                negative_conditioning = d.get("negative", [])
-            except Exception:
-                positive_conditioning, negative_conditioning = [], []
-
-        (
-            shift, _pos_text, _neg_text, samples,
-            steps, cfg, sampler_name, scheduler,
-            end_at_step, prefix,
-        ) = base_tuple
-
-        return (
-            shift, positive_conditioning, negative_conditioning,
-            samples, steps, cfg, sampler_name, scheduler,
-            end_at_step, prefix,
-        )
-    
-class LoadLatents_FromFolder_I2V_MXD(LoadLatents_FromFolder_WithParams):
-    """
-    Same as LoadLatents_FromFolder_WithParams, but includes CONDITIONING outputs
-    (positive/negative tensors) loaded from paired `.cond.pt` sidecar files.
-    """
-    TITLE = "Load Latents (Folder, I2V + Conditioning)"
-    CATEGORY = "MXD/Latents (I2V)"
-    FUNCTION = "load_batch_i2v"
-
-    RETURN_TYPES = (
-        "FLOAT",         # shift
-        "CONDITIONING",  # positive conditioning
-        "CONDITIONING",  # negative conditioning
-        "LATENT",
-        "INT",
-        "FLOAT",
-        "STRING",
-        "STRING",
-        "INT",
-        "STRING",
-    )
-    RETURN_NAMES = (
-        "shift",
-        "positive",
-        "negative",
-        "samples",
-        "steps",
-        "cfg",
-        "sampler_name",
-        "scheduler",
-        "end_at_step",
-        "filename_prefix",
-    )
-
-    OUTPUT_IS_LIST = (True,) * 10  # same length for all outputs
-
-    def load_batch_i2v(self, subfolder):
-        latents_root = os.path.join(folder_paths.get_input_directory(), "latents")
-        base = os.path.join(latents_root, subfolder) if subfolder else latents_root
-        files = glob.glob(os.path.join(base, "**", "*.latent"), recursive=True)
-        files.sort()
-        if not files:
-            raise RuntimeError(f"[LoadLatents_FromFolder_I2V_MXD] No .latent files found in '{base}'.")
-
-        shifts, samples_list = [], []
-        positives, negatives = [], []
-        steps_list, cfgs, samplers, schedulers, end_steps = [], [], [], [], []
-        filename_prefixes = []
-
-        for path in files:
-            sample_dict, meta, _ = _load_latent_file(path)
-            t = sample_dict["samples"]
-
-            if isinstance(t, torch.Tensor) and t.dim() >= 4 and t.size(0) > 1:
-                slices = [t[i:i+1].contiguous() for i in range(t.size(0))]
-            else:
-                slices = [t if (isinstance(t, torch.Tensor) and t.dim() >= 4 and t.size(0) == 1)
-                          else t.unsqueeze(0)]
-
-            prompt_json = _safe_json_loads(meta.get("prompt"))
-            pos, neg, n_steps, cfg, sampler_name, scheduler, end_at_step = \
-                _extract_params_from_prompt_json(prompt_json or {})
-
-            sampler_name = self._coerce_enum(sampler_name, getattr(self.__class__, "_SAMPLERS_ENUM", ()))
-            scheduler    = self._coerce_enum(scheduler,    getattr(self.__class__, "_SCHEDULERS_ENUM", ()))
-            shift_val    = self._extract_sd3_shift(meta, prompt_json)
-
-            # Load sidecar conditionings
-            cond_path = path.replace(".latent", ".cond.pt")
-            positive_conditioning, negative_conditioning = [], []
-            if os.path.exists(cond_path):
-                try:
-                    d = torch.load(cond_path, map_location="cpu")
-                    positive_conditioning = d.get("positive", [])
-                    negative_conditioning = d.get("negative", [])
-                except Exception:
-                    pass
-
-            folder_part = subfolder if subfolder else ""
-            clean_stem  = self._strip_counter(os.path.basename(path))
-            prefix      = os.path.join(folder_part, clean_stem) if folder_part else clean_stem
-
-            for sl in slices:
-                shifts.append(float(shift_val))
-                positives.append(positive_conditioning)
-                negatives.append(negative_conditioning)
-                samples_list.append({"samples": sl})
-                steps_list.append(int(n_steps))
-                cfgs.append(float(cfg))
-                samplers.append(sampler_name)
-                schedulers.append(scheduler)
-                end_steps.append(int(end_at_step))
-                filename_prefixes.append(prefix)
-
-        return (
-            shifts,
-            positives,
-            negatives,
-            samples_list,
-            steps_list,
-            cfgs,
-            samplers,
-            schedulers,
-            end_steps,
-            filename_prefixes,
-        )
-
     
 # ---------- WAN 2.2 Image to Video (no scaling; expects pre-sized input) ----------
 
@@ -1177,8 +1250,9 @@ class Wan22ImageToVideoMXD(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="Wan22ImageToVideoMXD",
+            display_name="WAN 2.2 Image to Video",
             category="conditioning/video_models",
-            description="WAN 2.2 Image → Video (no scaling, no clip vision)",
+            description="WAN 2.2 Image to Video (no scaling, no clip vision)",
             inputs=[
                 io.Conditioning.Input("positive"),
                 io.Conditioning.Input("negative"),
@@ -1312,9 +1386,11 @@ class WAN22_I2V_Image_Scaler_MXD:
     - Fit (no pad): proportional resize ≤ target; returns resized dims.
     - Crop (no pad): resize-to-cover then center-crop to exact target.
     - Square handling:
-        * Auto: ~square → 624×624
-        * 480p: ~square → 624×624
-        * 720p: ~square → 720×720  (explicitly supported)
+        * Auto & 480p: ~square → 624×624
+        * 720p: ~square → 720×720
+    - Auto logic:
+        * Chooses 480p or 720p bucket based on minimal scaling.
+        * Never upscales if already fits or is near a lower bucket.
     """
 
     TITLE = "Image Bucket Scaler MXD (No Pad)"
@@ -1327,52 +1403,84 @@ class WAN22_I2V_Image_Scaler_MXD:
         return {
             "required": {
                 "image": ("IMAGE",),
-                "tier": (["Auto", "480p", "720p"], {"default": "480p"}),
-                "crop_to_fit": ("BOOLEAN", {"default": True, "label_on": "Perfect Fit (Crops Edges)", "label_off": "Closest Fit (No Crop)"}),
+                "tier": (["Auto", "480p", "720p"], {"default": "Auto"}),
+                "crop_to_fit": ("BOOLEAN", {
+                    "default": True,
+                    "label_on": "Perfect Fit (Crops Edges)",
+                    "label_off": "Closest Fit (No Crop)"
+                }),
             }
         }
 
+    # -----------------------------
+    # Internal helpers
+    # -----------------------------
     def _pick_bucket(self, iw, ih, tier, crop_to_fit):
         in_ar = _ar(iw, ih)
         is_squareish = _is_squareish(iw, ih)
         is_landscape = iw >= ih
 
-        # --- Square images always map to fixed square buckets ---
+        # --- Square handling ---
         if is_squareish:
             if tier == "720p":
                 return (720, 720)
             else:
-                # both Auto and 480p get 624x624
-                return (624, 624)
+                return (624, 624)  # Auto & 480p share same square bucket
 
-        # --- Non-square images below ---
+        # --- Explicit 480p tier ---
+        if tier == "480p":
+            buckets = [(832, 480)] if is_landscape else [(480, 832)]
+            return _closest_bucket(iw, ih, buckets, cover=crop_to_fit)
+
+        # --- Explicit 720p tier ---
         if tier == "720p":
             buckets = [(1280, 720)] if is_landscape else [(720, 1280)]
             return _closest_bucket(iw, ih, buckets, cover=crop_to_fit)
 
-        if tier == "480p":
-            buckets = [(832,480)] if is_landscape else [(480,832)]
-            return _closest_bucket(iw, ih, buckets, cover=crop_to_fit)
+        # --- Auto tier (smart minimal-scaling logic) ---
+        buckets_480 = [(832, 480)] if is_landscape else [(480, 832)]
+        buckets_720 = [(1280, 720)] if is_landscape else [(720, 1280)]
 
-        # Auto mode: pick 480 or 720 family depending on size
-        buckets = BUCKETS_720 if max(iw, ih) > 720 else BUCKETS_480
-        buckets = [(b[0], b[1]) for b in buckets if (b[0] > b[1]) == is_landscape]
-        return _closest_bucket(iw, ih, buckets, cover=crop_to_fit)
+        iw_ih = iw * ih
+        area_480 = 832 * 480
+        area_720 = 1280 * 720
 
+        scale_to_480 = abs(iw_ih - area_480) / area_480
+        scale_to_720 = abs(iw_ih - area_720) / area_720
+
+        # --- Rule 1: never upscale small images ---
+        if iw <= 832 and ih <= 480:
+            return _closest_bucket(iw, ih, buckets_480, cover=crop_to_fit)
+
+        # --- Rule 2: otherwise pick bucket with smaller scale delta ---
+        if scale_to_480 <= scale_to_720:
+            return _closest_bucket(iw, ih, buckets_480, cover=crop_to_fit)
+        else:
+            return _closest_bucket(iw, ih, buckets_720, cover=crop_to_fit)
+
+    # -----------------------------
+    # Main function
+    # -----------------------------
     def scale(self, image, tier="Auto", crop_to_fit=False):
         _, ih, iw, _ = image.shape
         bw, bh = self._pick_bucket(iw, ih, tier, crop_to_fit)
         is_squareish = _is_squareish(iw, ih)
+
         if is_squareish:
             crop_to_fit = False
-        bw, bh = _safe_hw(_ceil16(bw), _ceil16(bh)) if crop_to_fit else _safe_hw(_floor16(bw), _floor16(bh))
+
+        # round to multiples of 16 for compatibility
         if crop_to_fit:
+            bw, bh = _safe_hw(_ceil16(bw), _ceil16(bh))
             out = _resize_then_center_crop(image, bw, bh)
         else:
+            bw, bh = _safe_hw(_floor16(bw), _floor16(bh))
             out, _, _ = _resize_fit_inside(image, bw, bh)
+
         return (out,)
+
     
-class Frames_Select_End_MXD:
+class Frames_Select_StartEnd_MXD:
     def __init__(self):
         pass
 
@@ -1381,7 +1489,16 @@ class Frames_Select_End_MXD:
         return {
             "required": {
                 "frames": ("IMAGE",),
-                "count": ("INT", {"default": 10, "min": 1, "max": 10000, "tooltip": "Number of frames to select from the end"}),
+                "count": ("INT", {
+                    "default": 1,
+                    "min": 1,
+                    "max": 10000,
+                    "tooltip": "Number of frames to select"
+                }),
+                "mode": (["start", "end"], {
+                    "default": "end",
+                    "tooltip": "Select frames from the start or end of the sequence"
+                }),
             },
         }
 
@@ -1390,12 +1507,17 @@ class Frames_Select_End_MXD:
     FUNCTION     = "main"
     CATEGORY     = "MXD/images"
 
-    def main(self, frames=None, count=10):
+    def main(self, frames=None, count=10, mode="end"):
         total = frames.shape[0]
-        start = max(0, total - count)
-        frames_end = frames[start:].clone()
-        return (frames_end,)
-    
+        count = min(count, total)
+
+        if mode == "start":
+            selected = frames[:count].clone()
+        else:
+            start = max(0, total - count)
+            selected = frames[start:].clone()
+
+        return (selected,)
 class Frames_Remove_From_Start_MXD:
     def __init__(self):
         pass
@@ -1434,8 +1556,8 @@ class CombineVideos_MXD:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "video_a": ("VIDEO", {"tooltip": "The first video (plays first)"}),
-                "video_b": ("VIDEO", {"tooltip": "The second video (plays after video_a)"}),
+                "front_video": ("VIDEO", {"tooltip": "The first video (plays first)"}),
+                "back_video": ("VIDEO", {"tooltip": "The second video (plays after the first)"}),
             },
         }
 
@@ -1444,9 +1566,9 @@ class CombineVideos_MXD:
     FUNCTION = "combine"
     CATEGORY = "MXD/video"
 
-    def combine(self, video_a, video_b):
-        comp_a = video_a.get_components()
-        comp_b = video_b.get_components()
+    def combine(self, front_video, back_video):
+        comp_a = front_video.get_components()
+        comp_b = back_video.get_components()
 
         # Check frame rate consistency
         if comp_a.frame_rate != comp_b.frame_rate:
@@ -1476,62 +1598,106 @@ class CombineVideos_MXD:
 
         return (combined_video,)
     
+# ---------- Load Video MXD (video-only picker with refresh) ----------
+class LoadVideoMXD:
+    """Load a video from /input with a refresh button (videos only)."""
 
-class LoadVideoMXD(io.ComfyNode):
-    @classmethod
-    def define_schema(cls):
-        input_dir = folder_paths.get_input_directory()
-        files = [f for f in os.listdir(input_dir) if os.path.isfile(os.path.join(input_dir, f))]
-        files = folder_paths.filter_files_content_types(files, ["video"])
-        return io.Schema(
-            node_id="LoadVideoMXD",
-            display_name="Load Video MXD (Auto-Reload)",
-            category="image/video",
-            description="Always reloads the newest video with the same base name each time you run.",
-            inputs=[
-                io.Combo.Input(
-                    "file",
-                    options=sorted(files),
-                    upload=io.UploadType.video,
-                    tooltip="Pick or upload the base video. The newest version will be auto-loaded on next run."
-                ),
-            ],
-            outputs=[
-                io.Video.Output("video"),
-                io.String.Output("video_path"),
-            ],
-        )
+    CATEGORY = "image/video"
+    FUNCTION = "load"
+    RETURN_TYPES = ("VIDEO", "STRING")
+    RETURN_NAMES = ("video", "video_path")
+    TITLE = "Load Video MXD"
 
     @classmethod
-    def _find_latest(cls, base_path: str) -> str:
-        base_dir, base_filename = os.path.split(base_path)
-        base_name, _ = os.path.splitext(base_filename)
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "file": ("COMBO", {
+                    # Only allow video uploads in the picker
+                    "video_upload": True,
+                    # Custom route that returns ONLY videos in /input
+                    "remote": {
+                        "route": "/mxd/videos/input",
+                        "refresh_button": True,
+                        "control_after_refresh": "first",
+                    },
+                }),
+            }
+        }
 
-        related = [
-            os.path.join(base_dir, f)
-            for f in os.listdir(base_dir)
-            if f.startswith(base_name) and os.path.isfile(os.path.join(base_dir, f))
-        ]
-        if not related:
-            return base_path
-        newest = max(related, key=os.path.getmtime)
-        return newest
+    # --- helpers --------------------------------------------------------------
+
+    @staticmethod
+    def _resolve_video_path(file: str) -> str:
+        """
+        Try to resolve `file` in a backwards-compatible way:
+        1. If it's an annotated path, let folder_paths handle it.
+        2. Otherwise treat it as relative to the input directory.
+        """
+        # 1) Try annotated style (old workflows / uploads)
+        try:
+            return folder_paths.get_annotated_filepath(file)
+        except Exception:
+            pass
+
+        # 2) Fall back to /input relative
+        base = folder_paths.get_input_directory()
+        candidate = os.path.join(base, file)
+        if os.path.isfile(candidate):
+            return candidate
+
+        # If all else fails, just return what we got (will error later)
+        return candidate
+
+    @staticmethod
+    def _is_video_file(path: str) -> bool:
+        _, ext = os.path.splitext(path)
+        return ext.lower() in VIDEO_EXTS
+
+    # --- main function --------------------------------------------------------
+
+    def load(self, file: str):
+        video_path = self._resolve_video_path(file)
+
+        if not os.path.isfile(video_path):
+            raise FileNotFoundError(f"[LoadVideoMXD] File not found: {video_path}")
+
+        if not self._is_video_file(video_path):
+            raise ValueError(f"[LoadVideoMXD] Not a video file: {video_path}")
+
+        print(f"[LoadVideoMXD] Loaded exactly: {video_path}")
+        return (VideoFromFile(video_path), video_path)
+
+    # --- nice-to-haves --------------------------------------------------------
 
     @classmethod
-    def execute(cls, file):
-        video_path = folder_paths.get_annotated_filepath(file)
-        latest = cls._find_latest(video_path)
-        if latest != video_path:
-            print(f"[LoadVideoMXD] Reloading latest: {os.path.basename(latest)}")
-        return io.NodeOutput(VideoFromFile(latest), latest)
+    def IS_CHANGED(cls, file: str):
+        try:
+            p = cls._resolve_video_path(file)
+            return os.path.getmtime(p)
+        except Exception:
+            return 0
 
-    # 🔥 This is the missing piece — forces reload whenever a newer file exists
     @classmethod
-    def fingerprint_inputs(cls, file):
-        video_path = folder_paths.get_annotated_filepath(file)
-        latest = cls._find_latest(video_path)
-        return os.path.getmtime(latest)
+    def VALIDATE_INPUTS(cls, file: str):
+        # First, try the annotated path (for backwards compat)
+        if folder_paths.exists_annotated_filepath(file):
+            resolved = folder_paths.get_annotated_filepath(file)
+            if not cls._is_video_file(resolved):
+                return f"This node only accepts video files ({', '.join(sorted(VIDEO_EXTS))})."
+            return True
 
+        # Then, try treating it as /input-relative
+        base = folder_paths.get_input_directory()
+        candidate = os.path.join(base, file)
+        if os.path.isfile(candidate):
+            if not cls._is_video_file(candidate):
+                return f"This node only accepts video files ({', '.join(sorted(VIDEO_EXTS))})."
+            return True
+
+        return f"Invalid video file: {file}"
+    
+# ---------- Save Video MXD (auto-increment clean filenames) ----------
 class SaveVideoMXD(io.ComfyNode):
     @classmethod
     def define_schema(cls):
@@ -1560,7 +1726,7 @@ class SaveVideoMXD(io.ComfyNode):
         # 🧹 Clean trailing counters like "__001__002" → remove them all
         base_clean = re.sub(r'(__\d+)+$', '', base_name)
 
-        # 🧮 Now find the next available counter
+        # 🧮 Find the next available counter
         pattern = re.compile(rf"^{re.escape(base_clean)}__(\d+){re.escape(ext)}$")
         existing = [
             int(m.group(1))
@@ -1595,9 +1761,47 @@ class SaveVideoMXD(io.ComfyNode):
             print(f"[SaveVideoMXD] Also saved copy to outputs: {alt_path}")
 
         print(f"[SaveVideoMXD] Saved clean new version: {new_filename}")
+
         rel_folder = os.path.relpath(base_dir, folder_paths.get_output_directory())
-        return io.NodeOutput(ui=ui.PreviewVideo([ui.SavedResult(new_filename, rel_folder, io.FolderType.output)]))
-    
+        return io.NodeOutput(
+            ui=ui.PreviewVideo([
+                ui.SavedResult(new_filename, rel_folder, io.FolderType.output)
+            ])
+        )
+
+class PreviewVideoMXD(io.ComfyNode):
+    @classmethod
+    def define_schema(cls):
+        return io.Schema(
+            node_id="PreviewVideoMXD",
+            display_name="Preview Video MXD",
+            category="image/video",
+            description="Displays the video in the preview panel without saving the final output.",
+            inputs=[
+                io.Video.Input("input_video", tooltip="Video to preview."),
+            ],
+            outputs=[
+                io.Video.Output("output_video", tooltip="Passes the same video forward."),
+            ],
+        )
+
+    @classmethod
+    def execute(cls, input_video: VideoInput):
+        # Save a temporary H264 file so ComfyUI has something to preview
+        out_dir = os.path.join(folder_paths.get_output_directory(), "previews")
+        os.makedirs(out_dir, exist_ok=True)
+
+        preview_path = os.path.join(out_dir, "preview_temp.mp4")
+        input_video.save_to(preview_path, format="mp4", codec="h264")
+
+        # ✅ Return the raw video object (not a tuple)
+        return io.NodeOutput(
+            input_video,
+            ui=ui.PreviewVideo([
+                ui.SavedResult("preview_temp.mp4", "previews", io.FolderType.output)
+            ])
+        )
+
 class GroupVideoFramesMXD:
     CATEGORY = "MXD/Video"
     TITLE = "Group Video Frames (MXD)"
@@ -1653,6 +1857,7 @@ class Wan22FirstLastImageToVideoMXD(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="Wan22FirstLastImageToVideoMXD",
+            display_name="WAN 2.2 First+Last Image → Video MXD",
             category="conditioning/video_models",
             inputs=[
                 io.Conditioning.Input("positive"),
@@ -1714,13 +1919,14 @@ NODE_CLASS_MAPPINGS = {
     "LoadLatents_FromFolder_I2V_MXD": LoadLatents_FromFolder_I2V_MXD,
     "Wan22ImageToVideoMXD": Wan22ImageToVideoMXD,
     "WAN22_I2V_Image_Scaler_MXD": WAN22_I2V_Image_Scaler_MXD,
-    "Frames_Select_End_MXD": Frames_Select_End_MXD,
     "Frames_Remove_From_Start_MXD": Frames_Remove_From_Start_MXD,
     "CombineVideos_MXD": CombineVideos_MXD,
     "LoadVideoMXD": LoadVideoMXD,
     "SaveVideoMXD": SaveVideoMXD,
+    "PreviewVideoMXD": PreviewVideoMXD,
     "GroupVideoFramesMXD": GroupVideoFramesMXD,
     "Wan22FirstLastImageToVideoMXD": Wan22FirstLastImageToVideoMXD,
+    "Frames_Select_StartEnd_MXD": Frames_Select_StartEnd_MXD,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -1733,12 +1939,13 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadLatent_I2V_MXD": "Load Latent I2V MXD",
     "LoadLatents_FromFolder_I2V_MXD": "Load Latent Batch I2V MXD",
     "Wan22ImageToVideoMXD": "Wan 2.2 Image to Video MXD",
-    "WAN22_I2V_Image_Scaler_MXD": "Wan 2.2 I2V Image Scaler MXD",
-    "Frames_Select_End_MXD": "Frames Select End MXD",
-    "Frames_Remove_From_Start_MXD": "Frames Remove From Start MXD",
+    "WAN22_I2V_Image_Scaler_MXD": "Image Scaler Wan 2.2 I2V MXD",
+    "Frames_Remove_From_Start_MXD": "Remove Frames From Start MXD",
     "CombineVideos_MXD": "Combine Videos MXD",
     "LoadVideoMXD": "Load Video MXD",
     "SaveVideoMXD": "Save Video MXD",
+    "PreviewVideoMXD": "Preview Video MXD",
     "GroupVideoFramesMXD": "Group Video Frames MXD",
-    "Wan22FirstLastImageToVideoMXD": "Wan 2.2 First/Last Image to Video MXD",
+    "Wan22FirstLastImageToVideoMXD": "Wan 2.2 I2V First & Last Frame MXD",
+    "Frames_Select_StartEnd_MXD": "Select Frames MXD",
 }

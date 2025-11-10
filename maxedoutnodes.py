@@ -1,5 +1,5 @@
 from __future__ import annotations
-import torch, math, comfy, os, folder_paths, node_helpers, comfy.model_management, comfy.utils, json, hashlib
+import torch, math, comfy, os, folder_paths, node_helpers, comfy.model_management, comfy.utils, json, hashlib, re
 from comfy.comfy_types import IO, ComfyNodeABC, InputTypeDict
 import numpy as np
 from PIL import Image, ImageOps, ImageSequence
@@ -390,17 +390,17 @@ class PromptWithGuidance(ComfyNodeABC):
 ########################################################################################################################    
 class FluxResolutionMatcher:
     DESCRIPTION = """
-    - For forcing the Flux Empty Latent Image node to auto-match the aspect ratio of the input image.
+    - Automatically matches the Flux Empty Latent Image node's resolution and orientation
+      to the input image.
 
-    - Resolution and vertical outputs plug into the Flux Empty Latent Image node.
+    - Only uses 'Standard Resolutions' internally, but remains fully compatible with
+      the Flux Empty Latent Image node output types.
     """
-    # --- ComfyUI Setup ---
     CATEGORY = "MXD/Latent"
-    
     FUNCTION = "match_resolution"
     RETURN_NAMES = ("resolution", "vertical")
 
-    # The list of resolutions this node will match against.
+    # Full set kept for compatibility (enum list must match FluxEmptyLatentImage)
     RESOLUTIONS = {
         "— High Resolutions —": None,
         "Square (1:1) 1408x1408": (1408, 1408),
@@ -408,12 +408,14 @@ class FluxResolutionMatcher:
         "Landscape (3:2) 1728x1152": (1728, 1152),
         "Widescreen (16:9) 1920x1088": (1920, 1088),
         "Ultrawide (21:9) 2176x960": (2176, 960),
+
         "— Standard Resolutions —": None,
         "Square (1:1) 1024x1024": (1024, 1024),
         "Standard (4:3) 1152x896": (1152, 896),
         "Landscape (3:2) 1216x832": (1216, 832),
         "Widescreen (16:9) 1344x768": (1344, 768),
         "Ultrawide (21:9) 1536x640": (1536, 640),
+
         "— Low Resolutions —": None,
         "Square (1:1) 320x320": (320, 320),
         "Standard (4:3) 448x320": (448, 320),
@@ -422,12 +424,16 @@ class FluxResolutionMatcher:
         "Ultrawide (21:9) 576x256": (576, 256),
     }
 
+    # Keep same enum type so it connects to FluxEmptyLatentImage
     RETURN_TYPES = (list(RESOLUTIONS.keys()), "BOOLEAN")
 
-    # --- Pre-computation at Class Load Time ---
+    # Precompute aspect ratio groups (only for standard resolutions)
     ASPECT_RATIO_GROUPS = {}
     for res_str, dims in RESOLUTIONS.items():
         if dims is None:
+            continue
+        # ✅ Skip high and low groups for logic
+        if "High" in res_str or "Low" in res_str:
             continue
         group_name = " ".join(res_str.split(' ')[:-1])
         if group_name not in ASPECT_RATIO_GROUPS:
@@ -438,11 +444,7 @@ class FluxResolutionMatcher:
 
     @classmethod
     def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "image": ("IMAGE",),
-            }
-        }
+        return {"required": {"image": ("IMAGE",)}}
 
     def match_resolution(self, image: torch.Tensor):
         if image.dim() < 4 or image.shape[1] < 1 or image.shape[2] < 1:
@@ -460,14 +462,13 @@ class FluxResolutionMatcher:
         )
 
         candidate_res_strings = self.ASPECT_RATIO_GROUPS[best_ar_group_name]['resolutions']
-        
+
         best_res_string = min(
             candidate_res_strings,
             key=lambda res_str: abs(img_area - (self.RESOLUTIONS[res_str][0] * self.RESOLUTIONS[res_str][1]))
         )
 
         return (best_res_string, is_vertical)
-
 ########################################################################################################################
 
 class LatentHalfMasks:
@@ -786,10 +787,11 @@ def _extract_params_from_prompt_json(prompt_json: dict):
     return pos, neg
 
 def _strip_counter(name: str) -> str:
+    # Only strip the trailing pattern we generate when saving: "_<5digits>_"
+    # Preserve numeric-only base names like "96".
     stem, _ = os.path.splitext(name)
-    while stem and (stem[-1] in "_-" or stem[-1].isdigit()):
-        stem = stem[:-1]
-    return stem
+    m = re.match(r"^(.*?)(?:_\d{5}_)$", stem)
+    return m.group(1) if m else stem
 
 # ---------- Node ----------
 class LoadImageBatchMXD:
