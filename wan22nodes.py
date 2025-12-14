@@ -3,8 +3,6 @@ import os, re, glob, json, hashlib
 from typing import Any, Dict, Tuple, Optional, List, Union
 
 import torch
-import numpy as np
-from PIL import Image
 from safetensors import safe_open
 
 import folder_paths
@@ -60,34 +58,25 @@ async def mxd_list_input_videos(request):
 class SaveLatentMXD:
     DESCRIPTION = """
     - Saves latents to `.latent` files under `input/latents/`.
-
-    - Also decodes & saves preview images for quick inspection in the UI.
-
     - Preserves prompt & extra Comfy metadata inside the file.
     """
-    TITLE = "Save Latent (with Preview)"
+    TITLE = "Save Latent"
     CATEGORY = "MXD/Latents"
     RETURN_TYPES = ()  # only UI
-    FUNCTION = "save_and_preview"
+    FUNCTION = "save_only"
     OUTPUT_NODE = True
 
     @classmethod
     def INPUT_TYPES(s):
         return {
             "required": {
-                "samples": ("LATENT", {"tooltip": "Latent tensor to save & preview."}),
-                "vae": ("VAE", {"tooltip": "VAE used to decode preview images."}),
+                "samples": ("LATENT", {"tooltip": "Latent tensor to save."}),
                 "filename_prefix": ("STRING", {"default": "ComfyUI", "tooltip": "Prefix for saved latent filename."}),
             },
             "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
         }
 
-    RETURN_TYPES = ()  # only UI
-    FUNCTION = "save_and_preview"
-    OUTPUT_NODE = True
-    CATEGORY = "MXD/Latents"
-
-    def save_and_preview(self, samples, vae, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
+    def save_only(self, samples, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
 
         # ---------- Save Latent ----------
         latents_dir = os.path.join(folder_paths.get_input_directory(), "latents")
@@ -97,62 +86,91 @@ class SaveLatentMXD:
             filename_prefix, latents_dir
         )
 
-        prompt_info = ""
-        if prompt is not None:
-            try:
-                prompt_info = json.dumps(prompt)
-            except Exception:
-                pass
-
-        metadata = None
+        # Metadata
+        meta = None
         if not args.disable_metadata:
-            metadata = {"prompt": prompt_info}
+            meta = {}
+            if prompt is not None:
+                try: meta["prompt"] = json.dumps(prompt)
+                except: pass
             if extra_pnginfo is not None:
                 for k, v in extra_pnginfo.items():
-                    try:
-                        metadata[k] = json.dumps(v)
-                    except Exception:
-                        pass
+                    try: meta[k] = json.dumps(v)
+                    except: pass
 
-        file = f"{filename}_{counter:05}_.latent"
-        file = os.path.join(full_output_folder, file)
+        file = os.path.join(full_output_folder, f"{filename}_{counter:05}_.latent")
 
-        output = {"latent_tensor": samples["samples"].contiguous(),
-                  "latent_format_version_0": torch.tensor([])}
+        payload = {
+            "latent_tensor": samples["samples"].contiguous(),
+            "latent_format_version_0": torch.tensor([]),
+        }
 
-        comfy.utils.save_torch_file(output, file, metadata=metadata)
+        comfy.utils.save_torch_file(payload, file, metadata=meta)
 
-        # ---------- Decode + Save preview images ----------
-        images = vae.decode(samples["samples"])
-        if len(images.shape) == 5:  # merge video/batched latents
-            images = images.reshape(-1, images.shape[-3], images.shape[-2], images.shape[-1])
+        return {}  # no previews, no UI
 
-        # Save previews to TEMP so the UI can locate them with type="temp"
-        temp_dir = folder_paths.get_temp_directory()
-        # build a preview name using the same helper so subfolder/counter are valid
-        w, h = images[0].shape[1], images[0].shape[0]
-        preview_prefix = filename_prefix + "_preview"
-        full_temp_folder, preview_name, temp_counter, temp_subfolder, _ = folder_paths.get_save_image_path(
-            preview_prefix, temp_dir, w, h
+# ---------- SaveLatent I2V (saves latent + conditioning) ----------
+class SaveLatent_I2V_MXD:
+    """
+    I2V-only saver that persists:
+      • latent tensor  ->  .latent
+      • pos/neg CONDITIONING  ->  .cond.pt
+    """
+    TITLE = "Save Latent I2V (with Conditioning)"
+    CATEGORY = "MXD/Latents (I2V)"
+    OUTPUT_NODE = True
+    RETURN_TYPES = ()
+    FUNCTION = "save_only"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "samples": ("LATENT", {"tooltip": "High-noise latent to save for later low-noise finishing."}),
+                "positive": ("CONDITIONING", {"tooltip": "Positive CONDITIONING after WAN image→video."}),
+                "negative": ("CONDITIONING", {"tooltip": "Negative CONDITIONING after WAN image→video."}),
+                "filename_prefix": ("STRING", {"default": "I2V", "tooltip": "Prefix for saved files"}),
+            },
+            "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
+        }
+
+    def save_only(self, samples, positive, negative, filename_prefix="I2V",
+                  prompt=None, extra_pnginfo=None):
+
+        # ---- save latent (.latent) ----
+        latents_dir = os.path.join(folder_paths.get_input_directory(), "latents")
+        os.makedirs(latents_dir, exist_ok=True)
+
+        full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(
+            filename_prefix, latents_dir
         )
 
-        results = []
-        for batch_number, image in enumerate(images):
-            np_img = (255.0 * image.cpu().numpy())
-            img = Image.fromarray(np.clip(np_img, 0, 255).astype(np.uint8))
+        # Metadata
+        meta = None
+        if not args.disable_metadata:
+            meta = {}
+            if prompt is not None:
+                try: meta["prompt"] = json.dumps(prompt)
+                except: pass
+            if extra_pnginfo is not None:
+                for k, v in extra_pnginfo.items():
+                    try: meta[k] = json.dumps(v)
+                    except: pass
 
-            fn_with_batch = preview_name.replace("%batch_num%", str(batch_number))
-            preview_file = f"{fn_with_batch}_{temp_counter:05}_.png"
-            img.save(os.path.join(full_temp_folder, preview_file), compress_level=1)
+        latent_path = os.path.join(full_output_folder, f"{filename}_{counter:05}_.latent")
 
-            results.append({
-                "filename": preview_file,
-                "subfolder": temp_subfolder,
-                "type": "temp"  # 👈 matches temp_dir so UI can render
-            })
-            temp_counter += 1
+        payload = {
+            "latent_tensor": samples["samples"].contiguous(),
+            "latent_format_version_0": torch.tensor([]),
+        }
+        comfy.utils.save_torch_file(payload, latent_path, metadata=meta)
 
-        return {"ui": {"images": results}}
+        # ---- save conditioning sidecar (.cond.pt) ----
+        cond_path = latent_path.replace(".latent", ".cond.pt")
+        torch.save({"positive": positive, "negative": negative}, cond_path)
+
+        # No preview logic at all
+        return {}
 
 # ---------- Helpers ----------
 def _load_latent_file(latent_path: str) -> Tuple[Dict[str, torch.Tensor], Dict[str, Any], List[str]]:
@@ -679,7 +697,12 @@ class LoadLatents_FromFolder_WithParams:
             sample_dict, meta, _ = _load_latent_file(path)
             t = sample_dict["samples"]
 
-            slices = [t[i:i+1].contiguous() for i in range(t.size(0))] if (t.dim() >= 4 and t.size(0) > 1) else [t.unsqueeze(0)]
+            if isinstance(t, torch.Tensor) and t.dim() >= 4 and t.size(0) > 1:
+                slices = [t[i:i+1].contiguous() for i in range(t.size(0))]
+            elif isinstance(t, torch.Tensor) and t.dim() >= 4 and t.size(0) == 1:
+                slices = [t]
+            else:
+                slices = [t.unsqueeze(0)]
 
             prompt_json = _safe_json_loads(meta.get("prompt"))
             pos, neg, n_steps, cfg, sampler_name, scheduler, end_at_step = _extract_params_from_prompt_json(prompt_json or {})
@@ -1098,100 +1121,6 @@ class wan22EmptyHunyuanLatentVideoMXD:
             device=comfy.model_management.intermediate_device()
         )
         return ({"samples": latent},)
-
-# ---------- I2V-specific latent save/load (sidecar conditioning; subclassed loader) ----------
-class SaveLatent_I2V_MXD:
-    """
-    I2V-only saver that persists:
-      • latent tensor  ->  .latent   (safetensors via comfy.utils.save_torch_file)
-      • pos/neg CONDITIONING  ->  .cond.pt (torch.save; robust for nested tensors)
-      • optional preview images to TEMP for UI
-    """
-    TITLE = "Save Latent I2V (with Conditioning)"
-    CATEGORY = "MXD/Latents (I2V)"
-    OUTPUT_NODE = True
-    RETURN_TYPES = ()
-    FUNCTION = "save_and_preview"
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "samples": ("LATENT", {"tooltip": "High-noise latent to save for later low-noise finishing."}),
-                "positive": ("CONDITIONING", {"tooltip": "Positive CONDITIONING after WAN image→video."}),
-                "negative": ("CONDITIONING", {"tooltip": "Negative CONDITIONING after WAN image→video."}),
-                "vae": ("VAE", {"tooltip": "Used to decode preview images for UI convenience."}),
-                "filename_prefix": ("STRING", {"default": "I2V", "tooltip": "Prefix for saved files"}),
-                "show_preview": ("BOOLEAN", {"default": False, "tooltip": "Show decoded preview images (slower)"}),
-            },
-            "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
-        }
-
-    def save_and_preview(self, samples, positive, negative, vae, filename_prefix="I2V",
-                         show_preview=False, prompt=None, extra_pnginfo=None):
-
-        # ---- save latent (.latent) ----
-        latents_dir = os.path.join(folder_paths.get_input_directory(), "latents")
-        os.makedirs(latents_dir, exist_ok=True)
-
-        full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(
-            filename_prefix, latents_dir
-        )
-
-        meta = None
-        if not args.disable_metadata:
-            meta = {}
-            if prompt is not None:
-                try:
-                    meta["prompt"] = json.dumps(prompt)
-                except Exception:
-                    pass
-            if extra_pnginfo is not None:
-                for k, v in extra_pnginfo.items():
-                    try:
-                        meta[k] = json.dumps(v)
-                    except Exception:
-                        pass
-
-        latent_path = os.path.join(full_output_folder, f"{filename}_{counter:05}_.latent")
-
-        payload = {
-            "latent_tensor": samples["samples"].contiguous(),
-            "latent_format_version_0": torch.tensor([]),
-        }
-        comfy.utils.save_torch_file(payload, latent_path, metadata=meta)
-
-        # ---- save conditioning sidecar (.cond.pt) ----
-        cond_path = latent_path.replace(".latent", ".cond.pt")
-        torch.save({"positive": positive, "negative": negative}, cond_path)
-
-        # ---- optional preview images ----
-        if not show_preview:
-            return {}  # skip VAE decode and preview generation
-
-        images = vae.decode(samples["samples"])
-        if len(images.shape) == 5:
-            images = images.reshape(-1, images.shape[-3], images.shape[-2], images.shape[-1])
-
-        temp_dir = folder_paths.get_temp_directory()
-        w, h = images[0].shape[1], images[0].shape[0]
-        preview_prefix = filename_prefix + "_preview"
-        full_temp_folder, preview_name, temp_counter, temp_subfolder, _ = folder_paths.get_save_image_path(
-            preview_prefix, temp_dir, w, h
-        )
-
-        results = []
-        for b, image in enumerate(images):
-            np_img = (255.0 * image.cpu().numpy())
-            img = Image.fromarray(np.clip(np_img, 0, 255).astype(np.uint8))
-            fn_with_batch = preview_name.replace("%batch_num%", str(b))
-            preview_file = f"{fn_with_batch}_{temp_counter:05}_.png"
-            img.save(os.path.join(full_temp_folder, preview_file), compress_level=1)
-            results.append({"filename": preview_file, "subfolder": temp_subfolder, "type": "temp"})
-            temp_counter += 1
-
-        return {"ui": {"images": results}}
-    
 # ---------- WAN 2.2 Image to Video (no scaling; expects pre-sized input) ----------
 
 class Wan22ImageToVideoMXD(io.ComfyNode):
@@ -1199,7 +1128,7 @@ class Wan22ImageToVideoMXD(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="Wan22ImageToVideoMXD",
-            display_name="WAN 2.2 Image to Video",
+            display_name="WAN 2.2 Image to Video MXD",
             category="conditioning/video_models",
             description="WAN 2.2 Image to Video (no scaling, no clip vision)",
             inputs=[
@@ -1327,46 +1256,35 @@ def _resize_fit_inside(img, out_w, out_h):
     resized = comfy.utils.common_upscale(img.movedim(-1, 1), tw, th, "bilinear", "center").movedim(1, -1)
     return resized, tw, th
 
-# ---------- WAN 2.2 Image Scaler (no padding; fit or crop modes; square-aware) ----------
-# Known WAN 2.2 "safe" video buckets (no-pad, multiples of 16)
+# ---------- WAN22_I2V_Image_Scaler_MXD ----------
+# Adds a new “Safe Auto” mode for video extend workflows.
+# Normal modes (Auto / 480p / 720p) behave exactly as before.
+# “Safe Auto” adds passthrough + strict checks to prevent failures on WAN 2.2 extend.
+
 _WAN22_VALID_RES = {
-    (832, 480), (480, 832),   # 480p landscape/portrait
-    (1280, 720), (720, 1280), # 720p landscape/portrait
-    (624, 624),               # square ~480-tier
-    (720, 720),               # square 720-tier
+    (832, 480), (480, 832),
+    (1280, 720), (720, 1280),
+    (624, 624), (720, 720),
 }
 
 def _wan22_is_valid_dim(w, h):
-    """Return True if (w, h) is an exact WAN 2.2 bucket we consider safe."""
     return (w, h) in _WAN22_VALID_RES
 
 
 class WAN22_I2V_Image_Scaler_MXD:
     """
     MXD Image Scaler for WAN 2.2 (NO PADDING)
-
-    - Modes: Auto / 480p / 720p
+    - Modes: Auto / 480p / 720p / Safe Auto
     - Fit (no pad): proportional resize ≤ target; returns resized dims.
     - Crop (no pad): resize-to-cover then center-crop to exact target.
-
     - Square handling:
         * Auto & 480p: ~square → 624×624
         * 720p: ~square → 720×720
-
-    - Auto logic:
-        * Chooses 480p or 720p bucket based on minimal scaling.
-        * Prefers 480p for small inputs so we don't jump to 720p unnecessarily.
-
-    - Video-safe guardrails:
-        * If input is already an exact WAN 2.2 bucket:
-              832×480, 480×832,
-              1280×720, 720×1280,
-              624×624, 720×720
-          → the image is returned **unchanged** (perfect for video-extend “last frame” use).
-
-        * If input area is far outside 480p/720p range, raises a clear error
-          explaining that WAN 2.2 does not support arbitrary resolutions and
-          they should use something near 480p or 720p.
+    - “Safe Auto”:
+        * If input is already a valid WAN 2.2 bucket, passthrough.
+        * If input is far outside 480p–720p range, error early.
+        * Otherwise, same logic as Auto.
+        * Perfect for video-extend workflows.
     """
 
     TITLE = "Image Bucket Scaler MXD (No Pad)"
@@ -1379,7 +1297,7 @@ class WAN22_I2V_Image_Scaler_MXD:
         return {
             "required": {
                 "image": ("IMAGE",),
-                "tier": (["Auto", "480p", "720p"], {"default": "Auto"}),
+                "tier": (["Auto", "480p", "720p", "Safe Auto"], {"default": "Auto"}),
                 "crop_to_fit": ("BOOLEAN", {
                     "default": True,
                     "label_on": "Perfect Fit (Crops Edges)",
@@ -1392,7 +1310,6 @@ class WAN22_I2V_Image_Scaler_MXD:
     # Internal helpers
     # -----------------------------
     def _pick_bucket(self, iw, ih, tier, crop_to_fit):
-        in_ar = _ar(iw, ih)
         is_squareish = _is_squareish(iw, ih)
         is_landscape = iw >= ih
 
@@ -1401,91 +1318,68 @@ class WAN22_I2V_Image_Scaler_MXD:
             if tier == "720p":
                 return (720, 720)
             else:
-                # Auto & 480p share same square bucket
                 return (624, 624)
 
-        # --- Explicit 480p tier ---
+        # --- Explicit tiers ---
         if tier == "480p":
-            buckets = [(832, 480)] if is_landscape else [(480, 832)]
-            return _closest_bucket(iw, ih, buckets, cover=crop_to_fit)
-
-        # --- Explicit 720p tier ---
+            return _closest_bucket(iw, ih, [(832, 480)] if is_landscape else [(480, 832)], cover=crop_to_fit)
         if tier == "720p":
-            buckets = [(1280, 720)] if is_landscape else [(720, 1280)]
-            return _closest_bucket(iw, ih, buckets, cover=crop_to_fit)
+            return _closest_bucket(iw, ih, [(1280, 720)] if is_landscape else [(720, 1280)], cover=crop_to_fit)
 
-        # --- Auto tier (smart minimal-scaling logic) ---
+        # --- Auto tier logic ---
         buckets_480 = [(832, 480)] if is_landscape else [(480, 832)]
         buckets_720 = [(1280, 720)] if is_landscape else [(720, 1280)]
-
-        iw_ih     = iw * ih
-        area_480  = 832 * 480
-        area_720  = 1280 * 720
-
+        iw_ih = iw * ih
+        area_480, area_720 = 832 * 480, 1280 * 720
         scale_to_480 = abs(iw_ih - area_480) / area_480
         scale_to_720 = abs(iw_ih - area_720) / area_720
 
-        # --- Rule 1: small images → stay in 480p bucket (avoid jumping to 720p) ---
-        # (We still allow upscaling 640x360 → 832x480, etc.)
+        # prefer minimal scaling
         if iw <= 832 and ih <= 480:
             return _closest_bucket(iw, ih, buckets_480, cover=crop_to_fit)
-
-        # --- Rule 2: otherwise pick bucket with smaller scale delta ---
-        if scale_to_480 <= scale_to_720:
-            return _closest_bucket(iw, ih, buckets_480, cover=crop_to_fit)
-        else:
-            return _closest_bucket(iw, ih, buckets_720, cover=crop_to_fit)
+        return _closest_bucket(iw, ih, buckets_480 if scale_to_480 <= scale_to_720 else buckets_720, cover=crop_to_fit)
 
     # -----------------------------
     # Main function
     # -----------------------------
     def scale(self, image, tier="Auto", crop_to_fit=False):
-        # image: [B, H, W, C]
         _, ih, iw, _ = image.shape
 
-        # 1) VIDEO-EXTEND SAFETY: If the frame is already a known WAN 2.2 bucket,
-        #    just passthrough. This makes "use last frame from WAN video" bulletproof:
-        #    no chance of re-scaling to the wrong tier.
-        if _wan22_is_valid_dim(iw, ih):
-            # Already WAN-safe (832x480, 1280x720, 624x624, 720x720, + portrait variants)
-            return (image,)
+        # --- Safe Auto logic ---
+        if tier == "Safe Auto":
+            # passthrough if already WAN-safe
+            if _wan22_is_valid_dim(iw, ih):
+                return (image,)
 
-        # 2) HARD BOUNDS: if the resolution is way off from WAN 2.2's expected range,
-        #    error early with a clear message instead of failing after a long video run.
-        area      = iw * ih
-        area_480  = 832 * 480        # ~399k
-        area_720  = 1280 * 720       # ~921k
-        min_area  = int(area_480 * 0.5)   # ~half of 480p bucket
-        max_area  = int(area_720 * 1.8)   # somewhat above 720p bucket
+            area = iw * ih
+            area_480, area_720 = 832 * 480, 1280 * 720
+            min_area, max_area = int(area_480 * 0.5), int(area_720 * 1.8)
 
-        if area < min_area or area > max_area:
-            size_label = "small" if area < min_area else "large"
-            raise ValueError(
-                "[WAN22_I2V_Image_Scaler_MXD] Input resolution "
-                f"{iw}x{ih} is too {size_label} for WAN 2.2 video buckets.\n"
-                "WAN 2.2 works best around these ranges:\n"
-                "  • 480p tier ≈ 832×480 (or 480×832)\n"
-                "  • 720p tier ≈ 1280×720 (or 720×1280)\n"
-                "  • Squares: 624×624 or 720×720\n\n"
-                "Please use a source closer to 480p/720p, or first run it through "
-                "your WAN 2.2 workflow at one of those tiers. This check exists so "
-                "the workflow fails early here instead of deep inside WAN 2.2."
-            )
+            if area < min_area or area > max_area:
+                size_label = "small" if area < min_area else "large"
+                raise ValueError(
+                    f"[WAN22_I2V_Image_Scaler_MXD] Input resolution {iw}x{ih} is too {size_label} for WAN 2.2 video buckets.\n"
+                    "WAN 2.2 works best around:\n"
+                    "  • 480p tier ≈ 832×480 (or 480×832)\n"
+                    "  • 720p tier ≈ 1280×720 (or 720×1280)\n"
+                    "  • Squares: 624×624 or 720×720\n\n"
+                    "Please use a source closer to 480p/720p, or first process it "
+                    "through your WAN 2.2 workflow. This ensures extend runs without mismatch."
+                )
+            # fallback to Auto scaling
+            tier = "Auto"
 
-        # 3) Normal bucket selection + scaling
+        # --- Normal path (Auto / 480p / 720p) ---
         bw, bh = self._pick_bucket(iw, ih, tier, crop_to_fit)
         is_squareish = _is_squareish(iw, ih)
 
-        # Don't crop squares; just fit
         if is_squareish:
             crop_to_fit = False
 
         if crop_to_fit:
-            # crop case: bucket dims rounded up to multiples of 16
             bw, bh = _safe_hw(_ceil16(bw), _ceil16(bh))
             out = _resize_then_center_crop(image, bw, bh)
         else:
-            # fit case: bucket dims rounded down to multiples of 16
             bw, bh = _safe_hw(_floor16(bw), _floor16(bh))
             out, _, _ = _resize_fit_inside(image, bw, bh)
 
@@ -1883,7 +1777,7 @@ class Wan22FirstLastImageToVideoMXD(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="Wan22FirstLastImageToVideoMXD",
-            display_name="WAN 2.2 First+Last Image → Video MXD",
+            display_name="WAN 2.2 First&Last Image To Video MXD",
             category="conditioning/video_models",
             inputs=[
                 io.Conditioning.Input("positive"),

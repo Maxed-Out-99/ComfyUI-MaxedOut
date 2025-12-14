@@ -171,6 +171,93 @@ class SdxlEmptyLatentImage:
         # Typically, the latent space has 4 channels and each spatial dimension is 1/8th of the image.
         latent = torch.zeros([batch_size, 4, height // 8, width // 8], device=self.device)
         return ({"samples": latent},)
+    
+########################################################################################################################
+# Z-Image Turbo Empty Latent Image (SD3-compatible)
+class ZImageTurboEmptyLatentImage:
+    DESCRIPTION = """
+    - Provides a curated set of SAFE and OPTIMAL resolutions for Z-Image Turbo.
+
+    - All presets stay within Z-Image Turbo's native comfort zone
+      to avoid composition breakage and latent corruption.
+
+    - Designed to save time and remove guesswork.
+    """
+    TITLE = "Z-Image Turbo Empty Latent Image"
+    CATEGORY = "MXD/Latent"
+
+    RESOLUTIONS = {
+        "— Recommended (Best Overall) —": None,
+        "Square (1:1) 1024x1024": (1024, 1024),
+        "Landscape (16:9) 1920x1088": (1920, 1088),
+        "Portrait (2:3) 1024x1536": (1024, 1536),
+
+        "— High Detail —": None,
+        "Square (1:1) 1280x1280": (1280, 1280),
+        "Square (1:1) 1536x1536": (1536, 1536),
+        "Landscape (16:9) 2048x1152": (2048, 1152),
+        "Portrait (9:16) 1152x2048": (1152, 2048),
+
+        "— Cinematic / Wide —": None,
+        "Landscape (21:9) 2016x864": (2016, 864),
+        "Landscape (21:9) 1680x720": (1680, 720),
+
+        "— Fast / Draft —": None,
+        "Square (1:1) 768x768": (768, 768),
+        "Landscape (16:9) 1280x720": (1280, 720),
+        "Portrait (3:4) 832x1216": (832, 1216),
+    }
+
+    def __init__(self):
+        self.device = comfy.model_management.intermediate_device()
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict:
+        return {
+            "required": {
+                "resolution": (
+                    list(cls.RESOLUTIONS.keys()),
+                    {"default": "Square (1:1) 1024x1024"}
+                ),
+                "vertical": (
+                    "BOOLEAN",
+                    {
+                        "default": False,
+                        "tooltip": "Swap width and height."
+                    }
+                ),
+                "batch_size": (
+                    "INT",
+                    {
+                        "default": 1,
+                        "min": 1,
+                        "max": 4096,
+                        "tooltip": "Number of latent images in the batch."
+                    }
+                )
+            }
+        }
+
+    RETURN_TYPES = ("LATENT",)
+    OUTPUT_TOOLTIPS = ("The empty Z-Image Turbo latent batch.",)
+    FUNCTION = "generate"
+
+    def generate(self, resolution, vertical, batch_size=1) -> tuple:
+        size = self.RESOLUTIONS.get(resolution)
+        if size is None:
+            raise ValueError(f"'{resolution}' is a header or invalid option.")
+
+        width, height = size
+        if vertical:
+            width, height = height, width
+
+        latent = torch.zeros(
+            [batch_size, 16, height // 8, width // 8],
+            device=self.device
+        )
+
+        return ({"samples": latent},)
+
 ########################################################################################################################
 # SDXL Resolution Selector
 class SdxlResolutionSelector:
@@ -973,6 +1060,7 @@ NODE_CLASS_MAPPINGS = {
     "Crop Image By Mask": CropImageByMask,
     "Load Image Batch MXD": LoadImageBatchMXD,
     "LoadImageWithPromptsMXD": LoadImageWithPromptsMXD,
+    "ZImageTurboEmptyLatentImage": ZImageTurboEmptyLatentImage,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -989,4 +1077,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Crop Image By Mask": "Crop Image by Mask MXD",
     "Load Image Batch MXD": "Load Image Batch MXD",
     "LoadImageWithPromptsMXD": "Load Image MXD",
+    "ZImageTurboEmptyLatentImage": "ZImageTurbo Empty Latent Image MXD",
 }
