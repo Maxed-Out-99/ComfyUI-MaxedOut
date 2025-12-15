@@ -1029,6 +1029,49 @@ class LoadImageWithPromptsMXD:
     
 ########################################################################################################################
 
+from nodes import PreviewImage, SaveImage
+class SaveImage_MXD:
+    TITLE = "Save Image MXD"
+    CATEGORY = "MXD/Image"
+    OUTPUT_NODE = True
+    FUNCTION = "save"
+
+    DESCRIPTION = """
+    - Save images to your ComfyUI output folder, or preview without saving.
+
+    - Use this when you want one simple node instead of choosing
+      between PreviewImage and SaveImage.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "images": ("IMAGE", {"tooltip": "Images to preview and/or save."}),
+                "filename_prefix": ("STRING", {
+                    "default": "ComfyUI",
+                    "tooltip": "File name prefix. Tip: you can use a subfolder like 'tests/my_run'."
+                }),
+                "mode": ([
+                    "Save + Preview",
+                    "Preview only"
+                ], {
+                    "default": "Save + Preview",
+                    "tooltip": "Choose whether to write files to disk or only show the preview."
+                }),
+            },
+            "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
+        }
+
+    RETURN_TYPES = ()
+    OUTPUT_TOOLTIPS = ("Saves and/or previews the images.",)
+
+    def save(self, images, filename_prefix, mode, prompt=None, extra_pnginfo=None):
+        if mode.startswith("Preview"):
+            return PreviewImage().save_images(images, filename_prefix, prompt, extra_pnginfo)
+        return SaveImage().save_images(images, filename_prefix, prompt, extra_pnginfo)
+
+
 
 # NODE MAPPING
 NODE_CLASS_MAPPINGS = {
@@ -1046,6 +1089,7 @@ NODE_CLASS_MAPPINGS = {
     "Load Image Batch MXD": LoadImageBatchMXD,
     "LoadImageWithPromptsMXD": LoadImageWithPromptsMXD,
     "ZImageTurboEmptyLatentImage": ZImageTurboEmptyLatentImage,
+    "Save Image MXD": SaveImage_MXD,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -1063,4 +1107,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Load Image Batch MXD": "Load Image Batch MXD",
     "LoadImageWithPromptsMXD": "Load Image MXD",
     "ZImageTurboEmptyLatentImage": "ZImageTurbo Empty Latent Image MXD",
+    "Save Image MXD": "Save Image MXD",
 }
