@@ -173,39 +173,36 @@ class SdxlEmptyLatentImage:
         return ({"samples": latent},)
     
 ########################################################################################################################
-# Z-Image Turbo Empty Latent Image (SD3-compatible)
+# Z-Image Turbo Empty Latent Image (SD3-compatible) — Flux-style grouping
 class ZImageTurboEmptyLatentImage:
     DESCRIPTION = """
     - Provides a curated set of SAFE and OPTIMAL resolutions for Z-Image Turbo.
 
-    - All presets stay within Z-Image Turbo's native comfort zone
-      to avoid composition breakage and latent corruption.
-
-    - Designed to save time and remove guesswork.
+    - Meant to save time from manually entering the same
+      resolutions in the "Empty Latent Image" node over and over.
     """
     TITLE = "Z-Image Turbo Empty Latent Image"
     CATEGORY = "MXD/Latent"
 
+    # Same resolutions as your original, just grouped like Flux
     RESOLUTIONS = {
-        "— Recommended (Best Overall) —": None,
-        "Square (1:1) 1024x1024": (1024, 1024),
-        "Landscape (16:9) 1920x1088": (1920, 1088),
-        "Portrait (2:3) 1024x1536": (1024, 1536),
-
-        "— High Detail —": None,
-        "Square (1:1) 1280x1280": (1280, 1280),
+        "— High Resolutions —": None,
         "Square (1:1) 1536x1536": (1536, 1536),
-        "Landscape (16:9) 2048x1152": (2048, 1152),
+        "Square (1:1) 1280x1280": (1280, 1280),
+        "Widescreen (16:9) 2048x1152": (2048, 1152),
         "Portrait (9:16) 1152x2048": (1152, 2048),
+        "Ultrawide (21:9) 2016x864": (2016, 864),
 
-        "— Cinematic / Wide —": None,
-        "Landscape (21:9) 2016x864": (2016, 864),
-        "Landscape (21:9) 1680x720": (1680, 720),
+        "— Standard Resolutions —": None,
+        "Square (1:1) 1024x1024": (1024, 1024),
+        "Widescreen (16:9) 1920x1088": (1920, 1088),
+        "Portrait (2:3) 1024x1536": (1024, 1536),
+        "Ultrawide (21:9) 1680x720": (1680, 720),
 
-        "— Fast / Draft —": None,
+        "— Low Resolutions —": None,
         "Square (1:1) 768x768": (768, 768),
-        "Landscape (16:9) 1280x720": (1280, 720),
-        "Portrait (3:4) 832x1216": (832, 1216),
+        "Widescreen (16:9) 1280x720": (1280, 720),
+        "Portrait (2:3) 832x1216": (832, 1216),
     }
 
     def __init__(self):
@@ -221,19 +218,11 @@ class ZImageTurboEmptyLatentImage:
                 ),
                 "vertical": (
                     "BOOLEAN",
-                    {
-                        "default": False,
-                        "tooltip": "Swap width and height."
-                    }
+                    {"default": False, "tooltip": "Swap width and height."}
                 ),
                 "batch_size": (
                     "INT",
-                    {
-                        "default": 1,
-                        "min": 1,
-                        "max": 4096,
-                        "tooltip": "Number of latent images in the batch."
-                    }
+                    {"default": 1, "min": 1, "max": 4096, "tooltip": "Number of latent images in the batch."}
                 )
             }
         }
@@ -251,11 +240,7 @@ class ZImageTurboEmptyLatentImage:
         if vertical:
             width, height = height, width
 
-        latent = torch.zeros(
-            [batch_size, 16, height // 8, width // 8],
-            device=self.device
-        )
-
+        latent = torch.zeros([batch_size, 16, height // 8, width // 8], device=self.device)
         return ({"samples": latent},)
 
 ########################################################################################################################
