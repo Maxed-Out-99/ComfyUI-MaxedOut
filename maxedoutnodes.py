@@ -1054,10 +1054,11 @@ class SaveImage_MXD:
                 }),
                 "mode": ([
                     "Save + Preview",
-                    "Preview only"
+                    "Preview only",
+                    "Save Only"
                 ], {
                     "default": "Save + Preview",
-                    "tooltip": "Choose whether to write files to disk or only show the preview."
+                    "tooltip": "Choose whether to write files to disk, only preview, or save quietly."
                 }),
             },
             "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
@@ -1069,7 +1070,11 @@ class SaveImage_MXD:
     def save(self, images, filename_prefix, mode, prompt=None, extra_pnginfo=None):
         if mode.startswith("Preview"):
             return PreviewImage().save_images(images, filename_prefix, prompt, extra_pnginfo)
-        return SaveImage().save_images(images, filename_prefix, prompt, extra_pnginfo)
+        result = SaveImage().save_images(images, filename_prefix, prompt, extra_pnginfo)
+        if mode == "Save Only" and isinstance(result, dict):
+            # Strip UI previews so nothing shows up in the ComfyUI viewer.
+            return {k: v for k, v in result.items() if k != "ui"}
+        return result
 
 
 
