@@ -1,6 +1,6 @@
-import { app } from "../../scripts/app.js";
-import { api } from "../../scripts/api.js";
-import { ComfyWidgets } from "../../scripts/widgets.js";
+import { app } from "../../../scripts/app.js";
+import { api } from "../../../scripts/api.js";
+import { ComfyWidgets } from "../../../scripts/widgets.js";
 
 // --- Constants ---
 const NODE_TYPE_STRING = "Image Comparer + Save MXD";
