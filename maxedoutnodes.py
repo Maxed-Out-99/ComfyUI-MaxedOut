@@ -7,12 +7,7 @@ from PIL import Image, ImageOps, ImageSequence
 ########################################################################################################################
 # Flux Empty Latent Image (SD3-compatible)
 class FluxEmptyLatentImage:
-    DESCRIPTION = """
-    - Provides a wide selection of resolutions for Flux for easy selection.
-
-    - Meant to save time from manually entering the same 
-    resolutions in the "Empty Latent Image" node over and over.
-    """
+    DESCRIPTION = """Select a Flux resolution and create an empty latent batch."""
     TITLE = "Flux Empty Latent Image"
     CATEGORY = "MXD/Latent"
 
@@ -82,11 +77,7 @@ class FluxEmptyLatentImage:
 ########################################################################################################################
 # Flux Resolution Selector (for feeding into FluxEmptyLatentImage)
 class FluxResolutionSelector:
-    DESCRIPTION = """
-    - Provides a dropdown selection of Flux resolutions.
-    - Output connects directly to the 'resolution' input of FluxEmptyLatentImage.
-    - Useful for separating resolution selection from latent generation.
-    """
+    DESCRIPTION = """Pick a Flux resolution string for Flux Empty Latent Image."""
     TITLE = "Flux Resolution Selector"
     CATEGORY = "MXD/Latent"
 
@@ -110,15 +101,43 @@ class FluxResolutionSelector:
         return (resolution,)
 
 ########################################################################################################################
+# near your selector
+PREPROCESSOR_OPTIONS = [
+    "LineArtPreprocessor",
+    "CannyEdgePreprocessor",
+    "M-LSDPreprocessor",
+]
+
+try:
+    # adjust import path to where your AIO node actually lives
+    from custom_nodes.comfyui_controlnet_aux.__init__ import AIO_Preprocessor
+    FULL_PREPROCESSOR_OPTIONS = list(
+        AIO_Preprocessor.INPUT_TYPES()["required"]["preprocessor"][0]
+    )
+except Exception:
+    # fallback so the node still loads if AIO isn't available
+    FULL_PREPROCESSOR_OPTIONS = PREPROCESSOR_OPTIONS
+
+class ControlNetPreprocessorSelector:
+    DESCRIPTION = """Select a ControlNet preprocessor from a short list."""
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "preprocessor": (PREPROCESSOR_OPTIONS, {"default": "LineArtPreprocessor"})
+            }
+        }
+
+    RETURN_TYPES = (FULL_PREPROCESSOR_OPTIONS,)
+    RETURN_NAMES = ("preprocessor",)
+
+    def get_preprocessor(self, preprocessor):
+        return (preprocessor,)
+
+########################################################################################################################
 # Sdxl Empty Latent Image
 class SdxlEmptyLatentImage:
-
-    DESCRIPTION = """
-    - Provides all compatible SDXL resolutions easy selection.
-
-    - Meant to save time from manually entering the same 
-    resolutions in the "Empty Latent Image" node over and over.
-    """
+    DESCRIPTION = """Select an SDXL resolution and create an empty latent batch."""
     TITLE = "Sdxl Empty Latent Image (With Resolutions)"
     CATEGORY = "MXD/Latent"
 
@@ -175,12 +194,7 @@ class SdxlEmptyLatentImage:
 ########################################################################################################################
 # Z-Image Turbo Empty Latent Image (SD3-compatible) — Flux-style grouping
 class ZImageTurboEmptyLatentImage:
-    DESCRIPTION = """
-    - Provides a curated set of SAFE and OPTIMAL resolutions for Z-Image Turbo.
-
-    - Meant to save time from manually entering the same
-      resolutions in the "Empty Latent Image" node over and over.
-    """
+    DESCRIPTION = """Select a Z-Image Turbo resolution and create an empty latent batch."""
     TITLE = "Z-Image Turbo Empty Latent Image"
     CATEGORY = "MXD/Latent"
 
@@ -244,44 +258,9 @@ class ZImageTurboEmptyLatentImage:
         return ({"samples": latent},)
 
 ########################################################################################################################
-# SDXL Resolution Selector
-class SdxlResolutionSelector:
-    DESCRIPTION = """
-    - Provides a dropdown selection of SDXL resolutions.
-    - Output connects directly to SDXL Empty Latent Image resolution input.
-    """
-
-    @classmethod
-    def INPUT_TYPES(cls) -> dict:
-        return {
-            "required": {
-                "resolution": (
-                    list(SdxlEmptyLatentImage.RESOLUTIONS.keys()),
-                    {"default": "Square (1:1) 1024x1024"}
-                ),
-            }
-        }
-
-    RETURN_TYPES = (list(SdxlEmptyLatentImage.RESOLUTIONS.keys()),)
-    RETURN_NAMES = ("resolution",)
-    FUNCTION = "select_resolution"
-    CATEGORY = "MXD/Latent"
-
-    def select_resolution(self, resolution) -> tuple:
-        return (resolution,)
-
-########################################################################################################################
 # Image Scale To Total Pixels (SDXL Safe)
 class SDXLImageScaleToTotalPixelsSafe:
-    DESCRIPTION = """
-    - Scales to target megapixel count, preserving aspect ratio.
-
-    - If image matches SDXL resolutions (e.g. those used in
-    "SDXL Empty Latent Image" node), scaling is skipped. 
-
-    - Meant for SDXL workflows (e.g. image-to-image, inpainting)
-    to auto-scale random images but not images already made with SDXL.
-    """
+    DESCRIPTION = """Scale to a target megapixel count and keep aspect ratio. Skips SDXL-safe sizes."""
     upscale_methods = ["bilinear", "bicubic", "lanczos", "nearest-exact", "area"]
 
     # SDXL-safe resolutions (width, height) – store one orientation only,
@@ -348,15 +327,7 @@ class SDXLImageScaleToTotalPixelsSafe:
 ########################################################################################################################
 # Flux Image Scale To Total Pixels (Flux Safe)
 class FluxImageScaleToTotalPixelsSafe:
-    DESCRIPTION = """
-    - Scales to target megapixel count, preserving aspect ratio.
-
-    - If image matches Flux-safe resolutions (e.g. those used in
-    the Flux Empty Latent Image node), scaling is skipped. 
-
-    - Meant for image-to-image or inpainting workflows to auto-scale 
-    arbitrary images, but skip images already matching Flux resolutions.
-    """
+    DESCRIPTION = """Scale to a target megapixel count and keep aspect ratio. Skips Flux-safe sizes."""
     upscale_methods = ["bilinear", "bicubic", "lanczos", "nearest-exact", "area"]
 
     # Flux-safe resolutions (width, height) – stored in one orientation only
@@ -431,11 +402,7 @@ class FluxImageScaleToTotalPixelsSafe:
 ########################################################################################################################
 # Prompt with Guidance (Flux)
 class PromptWithGuidance(ComfyNodeABC):
-    DESCRIPTION = """
-    - Combines clip text encode with flux guidance to lower node count.
-
-    - Also removes the need to convert them into node group within ComfyUI. 
-    """
+    DESCRIPTION = """Encode text and apply Flux guidance in one node."""
     @classmethod
     def INPUT_TYPES(cls) -> InputTypeDict:
         return {
@@ -461,13 +428,7 @@ class PromptWithGuidance(ComfyNodeABC):
     
 ########################################################################################################################    
 class FluxResolutionMatcher:
-    DESCRIPTION = """
-    - Automatically matches the Flux Empty Latent Image node's resolution and orientation
-      to the input image.
-
-    - Only uses 'Standard Resolutions' internally, but remains fully compatible with
-      the Flux Empty Latent Image node output types.
-    """
+    DESCRIPTION = """Match the closest Flux resolution and orientation for the input image."""
     CATEGORY = "MXD/Latent"
     FUNCTION = "match_resolution"
     RETURN_NAMES = ("resolution", "vertical")
@@ -543,14 +504,59 @@ class FluxResolutionMatcher:
         return (best_res_string, is_vertical)
 ########################################################################################################################
 
+class SDXLResolutionMatcher:
+    DESCRIPTION = """Match the closest SDXL resolution and orientation for the input image."""
+    CATEGORY = "MXD/Latent"
+    FUNCTION = "match_resolution"
+    RETURN_NAMES = ("resolution", "vertical")
+
+    # Use the exact same enum list as SdxlEmptyLatentImage
+    RESOLUTIONS = SdxlEmptyLatentImage.RESOLUTIONS
+
+    RETURN_TYPES = (list(RESOLUTIONS.keys()), "BOOLEAN")
+
+    ASPECT_RATIO_GROUPS = {}
+    for res_str, dims in RESOLUTIONS.items():
+        if dims is None:
+            continue
+        group_name = " ".join(res_str.split(" ")[:-1])
+        if group_name not in ASPECT_RATIO_GROUPS:
+            w, h = dims
+            ratio = w / h
+            ASPECT_RATIO_GROUPS[group_name] = {"ratio": ratio, "resolutions": []}
+        ASPECT_RATIO_GROUPS[group_name]["resolutions"].append(res_str)
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"image": ("IMAGE",)}}
+
+    def match_resolution(self, image: torch.Tensor):
+        if image.dim() < 4 or image.shape[1] < 1 or image.shape[2] < 1:
+            print("Warning: Invalid image tensor received. Falling back to default resolution.")
+            return ("Square (1:1) 1024x1024", False)
+
+        _batch, height, width, _channels = image.shape
+        is_vertical = height > width
+        img_aspect_ratio = (height / width) if is_vertical else (width / height)
+        img_area = height * width
+
+        best_ar_group_name = min(
+            self.ASPECT_RATIO_GROUPS.keys(),
+            key=lambda name: abs(img_aspect_ratio - self.ASPECT_RATIO_GROUPS[name]["ratio"])
+        )
+
+        candidate_res_strings = self.ASPECT_RATIO_GROUPS[best_ar_group_name]["resolutions"]
+
+        best_res_string = min(
+            candidate_res_strings,
+            key=lambda res_str: abs(img_area - (self.RESOLUTIONS[res_str][0] * self.RESOLUTIONS[res_str][1]))
+        )
+
+        return (best_res_string, is_vertical)
+########################################################################################################################
+
 class LatentHalfMasks:
-    DESCRIPTION = """
-    - Splits a latent tensor into left and right half masks.
-
-    - Designed for dual-character setups (e.g. two Apply PuLID nodes).
-
-    - Simplifies workflows by removing manual math/masking steps.
-    """
+    DESCRIPTION = """Split a latent into left and right half masks."""
     TITLE = "Latent Half Masks"
     CATEGORY = "MXD/Latent"
 
@@ -655,13 +661,7 @@ def pil_to_tensor(pil_images):
 # ✨ The Main Node Class ✨
 # --------------------------------------------------------------------
 class PlaceImageByMask:
-    Description = """
-    - Overlay an image onto a base image.
-
-    - The position and scale of the overlay are determined by a mask's bounding box.
-
-    - Useful for placing images in specific regions of a base image.
-    """
+    Description = """Place an overlay image inside the mask bounds on a base image."""
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -741,6 +741,7 @@ class PlaceImageByMask:
 ######################################################################################################################################
 
 class CropImageByMask:
+    DESCRIPTION = """Crop images to the mask bounds when a mask is provided."""
     @classmethod
     def INPUT_TYPES(s):
         return {
@@ -867,11 +868,7 @@ def _strip_counter(name: str) -> str:
 
 # ---------- Node ----------
 class LoadImageBatchMXD:
-    DESCRIPTION = """
-    - Loads all images in a selected folder under outputs/.
-    - Automatically generates masks from alpha channel if present.
-    - Extracts positive/negative prompts from image metadata (if available).
-    """
+    DESCRIPTION = """Load images from an outputs folder, make masks from alpha, and read prompts."""
     TITLE = "Load Image Batch (Outputs + Prompts)"
     CATEGORY = "MXD/Image"
 
@@ -940,6 +937,7 @@ class LoadImageBatchMXD:
         return (images, masks, positives, negatives)
     
 class LoadImageWithPromptsMXD:
+    DESCRIPTION = """Load one input image, create a mask from alpha, and read prompts if present."""
     CATEGORY = "image"
 
     RETURN_TYPES = ("IMAGE", "MASK", "STRING", "STRING")
@@ -1036,12 +1034,7 @@ class SaveImage_MXD:
     OUTPUT_NODE = True
     FUNCTION = "save"
 
-    DESCRIPTION = """
-    - Save images to your ComfyUI output folder, or preview without saving.
-
-    - Use this when you want one simple node instead of choosing
-      between PreviewImage and SaveImage.
-    """
+    DESCRIPTION = """Save images to the output folder or preview them."""
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -1054,8 +1047,8 @@ class SaveImage_MXD:
                 }),
                 "mode": ([
                     "Save + Preview",
-                    "Preview only",
-                    "Save Only"
+                    "Save Only",
+                    "Preview only"
                 ], {
                     "default": "Save + Preview",
                     "tooltip": "Choose whether to write files to disk, only preview, or save quietly."
@@ -1083,11 +1076,12 @@ NODE_CLASS_MAPPINGS = {
     "Flux Empty Latent Image": FluxEmptyLatentImage,
     "Sdxl Empty Latent Image": SdxlEmptyLatentImage,
     "Flux Resolution Selector": FluxResolutionSelector,
-    "Sdxl Resolution Selector": SdxlResolutionSelector,
+    "ControlNet Preprocessor Selector": ControlNetPreprocessorSelector,
     "Image Scale To Total Pixels (SDXL Safe)": SDXLImageScaleToTotalPixelsSafe,
     "Flux Image Scale To Total Pixels (Flux Safe)": FluxImageScaleToTotalPixelsSafe,
     "Prompt With Guidance (Flux)": PromptWithGuidance,
     "FluxResolutionMatcher": FluxResolutionMatcher,
+    "SDXLResolutionMatcher": SDXLResolutionMatcher,
     "LatentHalfMasks": LatentHalfMasks,
     "Place Image By Mask": PlaceImageByMask,
     "Crop Image By Mask": CropImageByMask,
@@ -1101,11 +1095,12 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Flux Empty Latent Image": "Flux Empty Latent Image MXD",
     "Sdxl Empty Latent Image": "SDXL Empty Latent Image MXD",
     "Flux Resolution Selector": "Flux Resolution Selector MXD",
-    "Sdxl Resolution Selector": "SDXL Resolution Selector MXD",
+    "ControlNet Preprocessor Selector": "ControlNet Preprocessor Selector MXD",
     "Image Scale To Total Pixels (SDXL Safe)": "Scale SDXL Image MXD",
     "Flux Image Scale To Total Pixels (Flux Safe)": "Scale Flux Image MXD",
     "Prompt With Guidance (Flux)": "Prompt with Flux Guidance MXD",
     "FluxResolutionMatcher": "Flux Resolution Matcher MXD",
+    "SDXLResolutionMatcher": "SDXL Resolution Matcher MXD",
     "LatentHalfMasks": "Latent to L/R Masks MXD",
     "Place Image By Mask": "Place Image by Mask MXD",
     "Crop Image By Mask": "Crop Image by Mask MXD",

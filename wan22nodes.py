@@ -56,10 +56,7 @@ async def mxd_list_input_videos(request):
 
 # ---------- SaveLatent (Comfy-only; saves into input/latents) ----------
 class SaveLatentMXD:
-    DESCRIPTION = """
-    - Saves latents to `.latent` files under `input/latents/`.
-    - Preserves prompt & extra Comfy metadata inside the file.
-    """
+    DESCRIPTION = """Save latents to input/latents and keep prompt metadata."""
     TITLE = "Save Latent"
     CATEGORY = "MXD/Latents"
     RETURN_TYPES = ()  # only UI
@@ -284,13 +281,7 @@ def _extract_params_from_prompt_json(prompt_json: Dict[str, Any]) -> Tuple[str, 
 
 # ---------- Load a single latent (WITH Comfy params, consistent with folder version) ----------
 class LoadLatent_WithParams:
-    DESCRIPTION = """
-    - Loads a single latent file from `input/latents/`.
-
-    - Extracts saved prompt text, sampler, steps, cfg, and scheduler if present.
-
-    - Ensures compatibility with KSamplerAdvanced inputs.
-    """
+    DESCRIPTION = """Load one latent and return prompts and sampler settings."""
     TITLE = "Load Latent (With Params)"
     CATEGORY = "MXD/Latents"
     RETURN_TYPES = ("FLOAT", "STRING", "STRING", "LATENT", "INT", "FLOAT", "STRING", "STRING", "INT", "STRING")
@@ -530,11 +521,7 @@ class LoadLatent_WithParams:
 
 # ---------- Load multiple latents from a folder (WITH Comfy params, list outputs, video-safe) ----------
 class LoadLatents_FromFolder_WithParams:
-    DESCRIPTION = """
-    - Loads all `.latent` files from a chosen subfolder under `input/latents/`.
-
-    - Returns lists of latents, prompts, and sampler settings for batch workflows.
-    """
+    DESCRIPTION = """Load all latents in a folder with prompts and sampler settings."""
     TITLE = "Load Latents (Folder, With Params)"
     CATEGORY = "MXD/Latents"
     RETURN_TYPES  = (
@@ -997,12 +984,7 @@ class Wan2_2EmptyLatentImageMXD:
     Generates an empty latent tensor at common video-friendly resolutions.
     """
 
-    DESCRIPTION = """
-    - Creates an empty latent tensor sized for WAN 2.2 video generation.
-    - Includes presets for 480p and 720p in multiple aspect ratios.
-    - Enforces dimensions divisible by 8 for model compatibility.
-    - Batch size supported (all latents share the same resolution).
-    """
+    DESCRIPTION = """Create an empty WAN 2.2 latent at a preset resolution."""
     TITLE = "WAN2.2 Empty Latent Image"
     CATEGORY = "WAN2.2/Latent"
 
@@ -1130,7 +1112,7 @@ class Wan22ImageToVideoMXD(io.ComfyNode):
             node_id="Wan22ImageToVideoMXD",
             display_name="WAN 2.2 Image to Video MXD",
             category="conditioning/video_models",
-            description="WAN 2.2 Image to Video (no scaling, no clip vision)",
+            description="WAN 2.2 image to video without scaling or CLIP vision.",
             inputs=[
                 io.Conditioning.Input("positive"),
                 io.Conditioning.Input("negative"),
@@ -1625,7 +1607,7 @@ class SaveVideoMXD(io.ComfyNode):
             node_id="SaveVideoMXD",
             display_name="Save Video MXD",
             category="image/video",
-            description="Saves a new version of the video next to the original, auto-incrementing filenames cleanly.",
+            description="Save a new version next to the original with clean counters.",
             inputs=[
                 io.Video.Input("video"),
                 io.String.Input("video_path"),
@@ -1696,7 +1678,7 @@ class PreviewVideoMXD(io.ComfyNode):
             node_id="PreviewVideoMXD",
             display_name="Preview Video MXD",
             category="image/video",
-            description="Displays the video in the preview panel without saving the final output.",
+            description="Preview a video without saving output.",
             inputs=[
                 io.Video.Input("input_video", tooltip="Video to preview."),
             ],
