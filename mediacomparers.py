@@ -113,6 +113,8 @@ class MxdImageComparerSave(PreviewImage):
         )
 
         if preview:
+            # Also publish standard ui.images so the sidebar shows previews.
+            result_ui["images"] = result_ui["a_images"] + result_ui["b_images"]
             return {"ui": result_ui}
         return {}
 

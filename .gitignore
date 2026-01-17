@@ -28,6 +28,9 @@ inputs/
 runs/
 logs/
 
+# Local testing workspace
+testing/
+
 # ComfyUI local cache & configs
 ComfyUI/output/
 ComfyUI/input/
