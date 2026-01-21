@@ -10,23 +10,6 @@ from .wan22nodes import (
     NODE_CLASS_MAPPINGS as WAN22_NODE_CLASS_MAPPINGS,
     NODE_DISPLAY_NAME_MAPPINGS as WAN22_NODE_DISPLAY_NAME_MAPPINGS,
 )
-try:
-    from .testing.testnodes import (
-        NODE_CLASS_MAPPINGS as TEST_NODE_CLASS_MAPPINGS,
-        NODE_DISPLAY_NAME_MAPPINGS as TEST_NODE_DISPLAY_NAME_MAPPINGS,
-    )
-except ModuleNotFoundError as exc:
-    missing_test_pkg = {
-        f"{__package__}.testing",
-        f"{__package__}.testing.testnodes",
-        "testing",
-        "testing.testnodes",
-    }
-    if exc.name not in missing_test_pkg:
-        raise
-    # Optional test nodes are absent in non-dev installs.
-    TEST_NODE_CLASS_MAPPINGS = {}
-    TEST_NODE_DISPLAY_NAME_MAPPINGS = {}
 
 WEB_DIRECTORY = "web"
 
@@ -35,13 +18,11 @@ NODE_CLASS_MAPPINGS = {}
 NODE_CLASS_MAPPINGS.update(MXD_NODE_CLASS_MAPPINGS)
 NODE_CLASS_MAPPINGS.update(MEDIA_NODE_CLASS_MAPPINGS)
 NODE_CLASS_MAPPINGS.update(WAN22_NODE_CLASS_MAPPINGS)
-NODE_CLASS_MAPPINGS.update(TEST_NODE_CLASS_MAPPINGS)
 
 NODE_DISPLAY_NAME_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS.update(MXD_NODE_DISPLAY_NAME_MAPPINGS)
 NODE_DISPLAY_NAME_MAPPINGS.update(MEDIA_NODE_DISPLAY_NAME_MAPPINGS)
 NODE_DISPLAY_NAME_MAPPINGS.update(WAN22_NODE_DISPLAY_NAME_MAPPINGS)
-NODE_DISPLAY_NAME_MAPPINGS.update(TEST_NODE_DISPLAY_NAME_MAPPINGS)
 
 __all__ = [
     "NODE_CLASS_MAPPINGS",
