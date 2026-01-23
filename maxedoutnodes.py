@@ -76,6 +76,55 @@ class FluxEmptyLatentImage:
         return ({"samples": latent},)
 
 ########################################################################################################################
+# Flux 2 Empty Latent Image (Flux2-compatible)
+class Flux2EmptyLatentImage:
+    DESCRIPTION = """Select a Flux resolution and create an empty Flux 2 latent batch."""
+    TITLE = "Flux 2 Empty Latent Image"
+    CATEGORY = "MXD/Latent"
+
+    RESOLUTIONS = FluxEmptyLatentImage.RESOLUTIONS
+
+    def __init__(self):
+        self.device = comfy.model_management.intermediate_device()
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict:
+        return {
+            "required": {
+                "resolution": (
+                    list(cls.RESOLUTIONS.keys()),
+                    {"default": "Square (1:1) 1024x1024"}
+                ),
+                "vertical": ("BOOLEAN", {"default": False}),
+                "batch_size": (
+                    "INT",
+                    {
+                        "default": 1,
+                        "min": 1,
+                        "max": 4096,
+                        "tooltip": "The number of latent images in the batch."
+                    }
+                )
+            }
+        }
+
+    RETURN_TYPES = ("LATENT",)
+    OUTPUT_TOOLTIPS = ("The empty Flux 2 latent image batch.",)
+    FUNCTION = "generate"
+
+    def generate(self, resolution, vertical, batch_size=1) -> tuple:
+        size = self.RESOLUTIONS.get(resolution)
+        if size is None:
+            raise ValueError(f"'{resolution}' is a header or invalid option.")
+
+        width, height = size
+        if vertical:
+            width, height = height, width
+
+        latent = torch.zeros([batch_size, 128, height // 16, width // 16], device=self.device)
+        return ({"samples": latent},)
+
+########################################################################################################################
 # Flux Resolution Selector (for feeding into FluxEmptyLatentImage)
 class FluxResolutionSelector:
     DESCRIPTION = """Pick a Flux resolution string for Flux Empty Latent Image."""
@@ -1200,6 +1249,7 @@ class SaveImage_MXD:
 # NODE MAPPING
 NODE_CLASS_MAPPINGS = {
     "Flux Empty Latent Image": FluxEmptyLatentImage,
+    "Flux 2 Empty Latent Image": Flux2EmptyLatentImage,
     "Sdxl Empty Latent Image": SdxlEmptyLatentImage,
     "Flux Resolution Selector": FluxResolutionSelector,
     "Image Scale To Total Pixels (SDXL Safe)": SDXLImageScaleToTotalPixelsSafe,
@@ -1220,6 +1270,7 @@ NODE_CLASS_MAPPINGS = {
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "Flux Empty Latent Image": "Flux Empty Latent Image MXD",
+    "Flux 2 Empty Latent Image": "Flux 2 Empty Latent Image MXD",
     "Sdxl Empty Latent Image": "SDXL Empty Latent Image MXD",
     "Flux Resolution Selector": "Flux Resolution Selector MXD",
     "Image Scale To Total Pixels (SDXL Safe)": "Scale SDXL Image MXD",
