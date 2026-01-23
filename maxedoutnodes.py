@@ -775,6 +775,50 @@ class LatentHalfMasks:
     
 ########################################################################################################################
 
+# Get Latent Size
+class GetLatentSizeMXD:
+    DESCRIPTION = """Get image width/height from a latent."""
+    TITLE = "Get Latent Size"
+    CATEGORY = "MXD/Latent"
+
+    RETURN_TYPES = ("INT", "INT")
+    RETURN_NAMES = ("width", "height")
+    OUTPUT_TOOLTIPS = ("Latent-derived image width in pixels.", "Latent-derived image height in pixels.")
+    FUNCTION = "get_size"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "latent": ("LATENT",),
+            }
+        }
+
+    def get_size(self, latent):
+        if isinstance(latent, dict):
+            width = latent.get("width")
+            height = latent.get("height")
+            if width is not None and height is not None:
+                try:
+                    return (int(width), int(height))
+                except Exception:
+                    pass
+
+            samples = latent.get("samples")
+        else:
+            samples = None
+
+        if samples is None or not isinstance(samples, torch.Tensor):
+            raise ValueError("GetLatentSizeMXD: invalid latent or missing 'samples' tensor.")
+
+        channels = samples.shape[1] if samples.dim() >= 2 else 0
+        scale = 16 if channels >= 64 else 8
+
+        h_lat, w_lat = samples.shape[-2], samples.shape[-1]
+        return (int(w_lat * scale), int(h_lat * scale))
+
+########################################################################################################################
+
 # --- Helper function to find the bounding box of a mask ---
 def get_bounding_box(mask_tensor):
     """
@@ -1260,6 +1304,7 @@ NODE_CLASS_MAPPINGS = {
     "FluxResolutionMatcher": FluxResolutionMatcher,
     "SDXLResolutionMatcher": SDXLResolutionMatcher,
     "LatentHalfMasks": LatentHalfMasks,
+    "Get Latent Size": GetLatentSizeMXD,
     "Place Image By Mask": PlaceImageByMask,
     "Crop Image By Mask": CropImageByMask,
     "Load Image Batch MXD": LoadImageBatchMXD,
@@ -1281,6 +1326,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "FluxResolutionMatcher": "Flux Resolution Matcher MXD",
     "SDXLResolutionMatcher": "SDXL Resolution Matcher MXD",
     "LatentHalfMasks": "Latent to L/R Masks MXD",
+    "Get Latent Size": "Get Latent Size MXD",
     "Place Image By Mask": "Place Image by Mask MXD",
     "Crop Image By Mask": "Crop Image by Mask MXD",
     "Load Image Batch MXD": "Load Image Batch MXD",
