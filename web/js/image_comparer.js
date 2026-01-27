@@ -458,11 +458,8 @@ class MxdImageComparer extends MxdBaseServerNode {
         // super.onSerialize && super.onSerialize(serialised);
         for (let [index, widget_value] of (serialised.widgets_values || []).entries()) {
             if (this.widgets[index]?.name === "mxd_comparer") {
-                serialised.widgets_values[index] = this.widgets[index].value.images.map((d) => {
-                    d = { ...d };
-                    delete d.img;
-                    return d;
-                });
+                // Do not persist preview image paths into workflow JSON.
+                serialised.widgets_values[index] = [];
             }
         }
     }
