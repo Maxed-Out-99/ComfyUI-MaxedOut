@@ -1289,6 +1289,30 @@ class SaveImage_MXD:
         return result
 
 
+########################################################################################################################
+# Dummy Node (for workflow missing-node testing)
+class DummyNodeMXD:
+    DESCRIPTION = """Basic dummy node for missing-node workflow tests."""
+    TITLE = "Dummy Node"
+    CATEGORY = "MXD/Test"
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict:
+        return {
+            "required": {
+                "text": ("STRING", {"default": "hello"}),
+                "repeat": ("INT", {"default": 1, "min": 1, "max": 10}),
+            }
+        }
+
+    RETURN_TYPES = ("STRING",)
+    OUTPUT_TOOLTIPS = ("The input text repeated N times.",)
+    FUNCTION = "run"
+
+    def run(self, text, repeat) -> tuple:
+        return (text * int(repeat),)
+
+
 
 # NODE MAPPING
 NODE_CLASS_MAPPINGS = {
@@ -1311,6 +1335,7 @@ NODE_CLASS_MAPPINGS = {
     "LoadImageWithPromptsMXD": LoadImageWithPromptsMXD,
     "ZImageTurboEmptyLatentImage": ZImageTurboEmptyLatentImage,
     "Save Image MXD": SaveImage_MXD,
+    "Dummy Node MXD": DummyNodeMXD,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -1333,4 +1358,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadImageWithPromptsMXD": "Load Image MXD",
     "ZImageTurboEmptyLatentImage": "ZImageTurbo Empty Latent Image MXD",
     "Save Image MXD": "Save Image MXD",
+    "Dummy Node MXD": "Dummy Node MXD",
 }
