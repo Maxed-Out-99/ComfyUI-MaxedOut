@@ -220,19 +220,18 @@ class ZImageTurboEmptyLatentImage:
         "Square (1:1) 1536x1536": (1536, 1536),
         "Square (1:1) 1280x1280": (1280, 1280),
         "Widescreen (16:9) 2048x1152": (2048, 1152),
-        "Portrait (9:16) 1152x2048": (1152, 2048),
         "Ultrawide (21:9) 2016x864": (2016, 864),
 
         "— Standard Resolutions —": None,
         "Square (1:1) 1024x1024": (1024, 1024),
+        "Standard (3:2) 1536x1024": (1536, 1024),
         "Widescreen (16:9) 1920x1088": (1920, 1088),
-        "Portrait (2:3) 1024x1536": (1024, 1536),
         "Ultrawide (21:9) 1680x720": (1680, 720),
 
         "— Low Resolutions —": None,
         "Square (1:1) 768x768": (768, 768),
+        "Standard (3:2) 1216x832": (1216, 832),
         "Widescreen (16:9) 1280x720": (1280, 720),
-        "Portrait (2:3) 832x1216": (832, 1216),
     }
 
     def __init__(self):
