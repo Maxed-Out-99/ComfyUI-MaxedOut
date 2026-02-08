@@ -13,10 +13,23 @@ from nodes import KSamplerAdvanced
 import node_helpers, nodes
 
 # Comfy API
-from comfy_api.latest import io, ui
-from comfy_api.input import VideoInput
-from comfy_api.input_impl import VideoFromFile, VideoFromComponents
-from comfy_api.util import VideoComponents, VideoContainer, VideoCodec
+try:
+    from comfy_api.latest import io, ui
+    from comfy_api.input import VideoInput
+    from comfy_api.input_impl import VideoFromFile, VideoFromComponents
+    from comfy_api.util import VideoComponents, VideoContainer, VideoCodec
+    HAVE_COMFY_API = True
+except Exception as _e:
+    io = None
+    ui = None
+    VideoInput = None
+    VideoFromFile = None
+    VideoFromComponents = None
+    VideoComponents = None
+    VideoContainer = None
+    VideoCodec = None
+    HAVE_COMFY_API = False
+    print(f"[ComfyUI-MaxedOut] comfy_api not available in wan22nodes: {_e}")
 
 from server import PromptServer
 from aiohttp import web
@@ -1104,72 +1117,72 @@ class wan22EmptyHunyuanLatentVideoMXD:
         )
         return ({"samples": latent},)
 # ---------- WAN 2.2 Image to Video (no scaling; expects pre-sized input) ----------
+if HAVE_COMFY_API:
+    class Wan22ImageToVideoMXD(io.ComfyNode):
+        @classmethod
+        def define_schema(cls):
+            return io.Schema(
+                node_id="Wan22ImageToVideoMXD",
+                display_name="WAN 2.2 Image to Video MXD",
+                category="conditioning/video_models",
+                description="WAN 2.2 image to video without scaling or CLIP vision.",
+                inputs=[
+                    io.Conditioning.Input("positive"),
+                    io.Conditioning.Input("negative"),
+                    io.Vae.Input("vae"),
+                    io.Int.Input("length", default=81, min=1, max=16384, step=4),
+                    io.Int.Input("batch_size", default=1, min=1, max=4096),
+                    io.Image.Input("start_image", optional=False),
+                ],
+                outputs=[
+                    io.Conditioning.Output(display_name="positive"),
+                    io.Conditioning.Output(display_name="negative"),
+                    io.Latent.Output(display_name="latent"),
+                ],
+            )
 
-class Wan22ImageToVideoMXD(io.ComfyNode):
-    @classmethod
-    def define_schema(cls):
-        return io.Schema(
-            node_id="Wan22ImageToVideoMXD",
-            display_name="WAN 2.2 Image to Video MXD",
-            category="conditioning/video_models",
-            description="WAN 2.2 image to video without scaling or CLIP vision.",
-            inputs=[
-                io.Conditioning.Input("positive"),
-                io.Conditioning.Input("negative"),
-                io.Vae.Input("vae"),
-                io.Int.Input("length", default=81, min=1, max=16384, step=4),
-                io.Int.Input("batch_size", default=1, min=1, max=4096),
-                io.Image.Input("start_image", optional=False),
-            ],
-            outputs=[
-                io.Conditioning.Output(display_name="positive"),
-                io.Conditioning.Output(display_name="negative"),
-                io.Latent.Output(display_name="latent"),
-            ],
-        )
+        @classmethod
+        def execute(cls, positive, negative, vae, length, batch_size, start_image) -> io.NodeOutput:
+            if start_image is None:
+                raise ValueError("start_image must be provided (already pre-sized).")
 
-    @classmethod
-    def execute(cls, positive, negative, vae, length, batch_size, start_image) -> io.NodeOutput:
-        if start_image is None:
-            raise ValueError("start_image must be provided (already pre-sized).")
+            frames_in, ih, iw, ch = start_image.shape
+            frames_used = min(frames_in, length)
+            t = ((length - 1) // 4) + 1
 
-        frames_in, ih, iw, ch = start_image.shape
-        frames_used = min(frames_in, length)
-        t = ((length - 1) // 4) + 1
+            latent = torch.zeros(
+                [batch_size, 16, t, ih // 8, iw // 8],
+                device=comfy.model_management.intermediate_device()
+            )
 
-        latent = torch.zeros(
-            [batch_size, 16, t, ih // 8, iw // 8],
-            device=comfy.model_management.intermediate_device()
-        )
+            # create placeholder image tensor
+            image = torch.ones(
+                (length, ih, iw, ch),
+                device=start_image.device,
+                dtype=start_image.dtype
+            ) * 0.5
+            image[:frames_used] = start_image[:frames_used]
 
-        # create placeholder image tensor
-        image = torch.ones(
-            (length, ih, iw, ch),
-            device=start_image.device,
-            dtype=start_image.dtype
-        ) * 0.5
-        image[:frames_used] = start_image[:frames_used]
+            # encode using VAE
+            concat_latent_image = vae.encode(image[:, :, :, :3])
 
-        # encode using VAE
-        concat_latent_image = vae.encode(image[:, :, :, :3])
+            # mask zeros out the frames used
+            mask = torch.ones(
+                (1, 1, t, concat_latent_image.shape[-2], concat_latent_image.shape[-1]),
+                device=image.device,
+                dtype=image.dtype
+            )
+            mask[:, :, :((frames_used - 1) // 4) + 1] = 0.0
 
-        # mask zeros out the frames used
-        mask = torch.ones(
-            (1, 1, t, concat_latent_image.shape[-2], concat_latent_image.shape[-1]),
-            device=image.device,
-            dtype=image.dtype
-        )
-        mask[:, :, :((frames_used - 1) // 4) + 1] = 0.0
+            positive = node_helpers.conditioning_set_values(
+                positive, {"concat_latent_image": concat_latent_image, "concat_mask": mask}
+            )
+            negative = node_helpers.conditioning_set_values(
+                negative, {"concat_latent_image": concat_latent_image, "concat_mask": mask}
+            )
 
-        positive = node_helpers.conditioning_set_values(
-            positive, {"concat_latent_image": concat_latent_image, "concat_mask": mask}
-        )
-        negative = node_helpers.conditioning_set_values(
-            negative, {"concat_latent_image": concat_latent_image, "concat_mask": mask}
-        )
-
-        out_latent = {"samples": latent}
-        return io.NodeOutput(positive, negative, out_latent)
+            out_latent = {"samples": latent}
+            return io.NodeOutput(positive, negative, out_latent)
 
 # ---- Canonical WAN 2.2 buckets ----
 BUCKETS_480 = [(832,480), (480,832), (624,624)]   # 16:9, 9:16, 1:1
@@ -1449,260 +1462,262 @@ class Frames_Remove_From_Start_MXD:
         return (frames_after,)
 
 
-class CombineVideos_MXD:
-    """
-    Combine two VIDEO inputs end-to-end (sequentially).
-    """
+if HAVE_COMFY_API:
+    class CombineVideos_MXD:
+        """
+        Combine two VIDEO inputs end-to-end (sequentially).
+        """
 
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "front_video": ("VIDEO", {"tooltip": "The first video (plays first)"}),
-                "back_video": ("VIDEO", {"tooltip": "The second video (plays after the first)"}),
-            },
-        }
-
-    RETURN_TYPES = ("VIDEO",)
-    RETURN_NAMES = ("video",)
-    FUNCTION = "combine"
-    CATEGORY = "MXD/video"
-
-    def combine(self, front_video, back_video):
-        comp_a = front_video.get_components()
-        comp_b = back_video.get_components()
-
-        # Check frame rate consistency
-        if comp_a.frame_rate != comp_b.frame_rate:
-            raise ValueError(f"FPS mismatch: {comp_a.frame_rate} vs {comp_b.frame_rate}")
-
-        # ✅ Correct way: concatenate frame tensors along batch/time dimension (dim=0)
-        frames_a = torch.stack(comp_a.images) if isinstance(comp_a.images, list) else comp_a.images
-        frames_b = torch.stack(comp_b.images) if isinstance(comp_b.images, list) else comp_b.images
-        combined_images = torch.cat([frames_a, frames_b], dim=0)
-
-        # ✅ Combine audio sequentially
-        combined_audio = None
-        if comp_a.audio is not None or comp_b.audio is not None:
-            audio_a = comp_a.audio if comp_a.audio is not None else torch.zeros((1, 0))
-            audio_b = comp_b.audio if comp_b.audio is not None else torch.zeros((1, 0))
-            combined_audio = torch.cat([audio_a, audio_b], dim=1)
-
-
-
-        combined_video = VideoFromComponents(
-            VideoComponents(
-                images=combined_images,
-                audio=combined_audio,
-                frame_rate=comp_a.frame_rate,
-            )
-        )
-
-        return (combined_video,)
-    
-# ---------- Load Video MXD (video-only picker with refresh) ----------
-class LoadVideoMXD:
-    """Load a video from /input with a refresh button (videos only)."""
-
-    CATEGORY = "image/video"
-    FUNCTION = "load"
-    RETURN_TYPES = ("VIDEO", "STRING")
-    RETURN_NAMES = ("video", "video_path")
-    TITLE = "Load Video MXD"
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "file": ("COMBO", {
-                    # Only allow video uploads in the picker
-                    "video_upload": True,
-                    # Custom route that returns ONLY videos in /input
-                    "remote": {
-                        "route": "/mxd/videos/input",
-                        "refresh_button": True,
-                        "control_after_refresh": "first",
-                    },
-                }),
+        @classmethod
+        def INPUT_TYPES(cls):
+            return {
+                "required": {
+                    "front_video": ("VIDEO", {"tooltip": "The first video (plays first)"}),
+                    "back_video": ("VIDEO", {"tooltip": "The second video (plays after the first)"}),
+                },
             }
-        }
 
-    # --- helpers --------------------------------------------------------------
+        RETURN_TYPES = ("VIDEO",)
+        RETURN_NAMES = ("video",)
+        FUNCTION = "combine"
+        CATEGORY = "MXD/video"
 
-    @staticmethod
-    def _resolve_video_path(file: str) -> str:
-        """
-        Try to resolve `file` in a backwards-compatible way:
-        1. If it's an annotated path, let folder_paths handle it.
-        2. Otherwise treat it as relative to the input directory.
-        """
-        # 1) Try annotated style (old workflows / uploads)
-        try:
-            return folder_paths.get_annotated_filepath(file)
-        except Exception:
-            pass
+        def combine(self, front_video, back_video):
+            comp_a = front_video.get_components()
+            comp_b = back_video.get_components()
 
-        # 2) Fall back to /input relative
-        base = folder_paths.get_input_directory()
-        candidate = os.path.join(base, file)
-        if os.path.isfile(candidate):
+            # Check frame rate consistency
+            if comp_a.frame_rate != comp_b.frame_rate:
+                raise ValueError(f"FPS mismatch: {comp_a.frame_rate} vs {comp_b.frame_rate}")
+
+            # ✅ Correct way: concatenate frame tensors along batch/time dimension (dim=0)
+            frames_a = torch.stack(comp_a.images) if isinstance(comp_a.images, list) else comp_a.images
+            frames_b = torch.stack(comp_b.images) if isinstance(comp_b.images, list) else comp_b.images
+            combined_images = torch.cat([frames_a, frames_b], dim=0)
+
+            # ✅ Combine audio sequentially
+            combined_audio = None
+            if comp_a.audio is not None or comp_b.audio is not None:
+                audio_a = comp_a.audio if comp_a.audio is not None else torch.zeros((1, 0))
+                audio_b = comp_b.audio if comp_b.audio is not None else torch.zeros((1, 0))
+                combined_audio = torch.cat([audio_a, audio_b], dim=1)
+
+
+
+            combined_video = VideoFromComponents(
+                VideoComponents(
+                    images=combined_images,
+                    audio=combined_audio,
+                    frame_rate=comp_a.frame_rate,
+                )
+            )
+
+            return (combined_video,)
+    
+    # ---------- Load Video MXD (video-only picker with refresh) ----------
+    class LoadVideoMXD:
+        """Load a video from /input with a refresh button (videos only)."""
+
+        CATEGORY = "image/video"
+        FUNCTION = "load"
+        RETURN_TYPES = ("VIDEO", "STRING")
+        RETURN_NAMES = ("video", "video_path")
+        TITLE = "Load Video MXD"
+
+        @classmethod
+        def INPUT_TYPES(cls):
+            return {
+                "required": {
+                    "file": ("COMBO", {
+                        # Only allow video uploads in the picker
+                        "video_upload": True,
+                        # Custom route that returns ONLY videos in /input
+                        "remote": {
+                            "route": "/mxd/videos/input",
+                            "refresh_button": True,
+                            "control_after_refresh": "first",
+                        },
+                    }),
+                }
+            }
+
+        # --- helpers --------------------------------------------------------------
+
+        @staticmethod
+        def _resolve_video_path(file: str) -> str:
+            """
+            Try to resolve `file` in a backwards-compatible way:
+            1. If it's an annotated path, let folder_paths handle it.
+            2. Otherwise treat it as relative to the input directory.
+            """
+            # 1) Try annotated style (old workflows / uploads)
+            try:
+                return folder_paths.get_annotated_filepath(file)
+            except Exception:
+                pass
+
+            # 2) Fall back to /input relative
+            base = folder_paths.get_input_directory()
+            candidate = os.path.join(base, file)
+            if os.path.isfile(candidate):
+                return candidate
+
+            # If all else fails, just return what we got (will error later)
             return candidate
 
-        # If all else fails, just return what we got (will error later)
-        return candidate
+        @staticmethod
+        def _is_video_file(path: str) -> bool:
+            _, ext = os.path.splitext(path)
+            return ext.lower() in VIDEO_EXTS
 
-    @staticmethod
-    def _is_video_file(path: str) -> bool:
-        _, ext = os.path.splitext(path)
-        return ext.lower() in VIDEO_EXTS
+        # --- main function --------------------------------------------------------
 
-    # --- main function --------------------------------------------------------
+        def load(self, file: str):
+            video_path = self._resolve_video_path(file)
 
-    def load(self, file: str):
-        video_path = self._resolve_video_path(file)
+            if not os.path.isfile(video_path):
+                raise FileNotFoundError(f"[LoadVideoMXD] File not found: {video_path}")
 
-        if not os.path.isfile(video_path):
-            raise FileNotFoundError(f"[LoadVideoMXD] File not found: {video_path}")
+            if not self._is_video_file(video_path):
+                raise ValueError(f"[LoadVideoMXD] Not a video file: {video_path}")
 
-        if not self._is_video_file(video_path):
-            raise ValueError(f"[LoadVideoMXD] Not a video file: {video_path}")
+            print(f"[LoadVideoMXD] Loaded exactly: {video_path}")
+            return (VideoFromFile(video_path), video_path)
 
-        print(f"[LoadVideoMXD] Loaded exactly: {video_path}")
-        return (VideoFromFile(video_path), video_path)
+        # --- nice-to-haves --------------------------------------------------------
 
-    # --- nice-to-haves --------------------------------------------------------
+        @classmethod
+        def IS_CHANGED(cls, file: str):
+            try:
+                p = cls._resolve_video_path(file)
+                return os.path.getmtime(p)
+            except Exception:
+                return 0
 
-    @classmethod
-    def IS_CHANGED(cls, file: str):
-        try:
-            p = cls._resolve_video_path(file)
-            return os.path.getmtime(p)
-        except Exception:
-            return 0
+        @classmethod
+        def VALIDATE_INPUTS(cls, file: str):
+            # First, try the annotated path (for backwards compat)
+            if folder_paths.exists_annotated_filepath(file):
+                resolved = folder_paths.get_annotated_filepath(file)
+                if not cls._is_video_file(resolved):
+                    return f"This node only accepts video files ({', '.join(sorted(VIDEO_EXTS))})."
+                return True
 
-    @classmethod
-    def VALIDATE_INPUTS(cls, file: str):
-        # First, try the annotated path (for backwards compat)
-        if folder_paths.exists_annotated_filepath(file):
-            resolved = folder_paths.get_annotated_filepath(file)
-            if not cls._is_video_file(resolved):
-                return f"This node only accepts video files ({', '.join(sorted(VIDEO_EXTS))})."
-            return True
+            # Then, try treating it as /input-relative
+            base = folder_paths.get_input_directory()
+            candidate = os.path.join(base, file)
+            if os.path.isfile(candidate):
+                if not cls._is_video_file(candidate):
+                    return f"This node only accepts video files ({', '.join(sorted(VIDEO_EXTS))})."
+                return True
 
-        # Then, try treating it as /input-relative
-        base = folder_paths.get_input_directory()
-        candidate = os.path.join(base, file)
-        if os.path.isfile(candidate):
-            if not cls._is_video_file(candidate):
-                return f"This node only accepts video files ({', '.join(sorted(VIDEO_EXTS))})."
-            return True
-
-        return f"Invalid video file: {file}"
+            return f"Invalid video file: {file}"
     
-# ---------- Save Video MXD (auto-increment clean filenames) ----------
-class SaveVideoMXD(io.ComfyNode):
-    @classmethod
-    def define_schema(cls):
-        return io.Schema(
-            node_id="SaveVideoMXD",
-            display_name="Save Video MXD",
-            category="image/video",
-            description="Save a new version next to the original with clean counters.",
-            inputs=[
-                io.Video.Input("video"),
-                io.String.Input("video_path"),
-                io.Combo.Input("save_to_outputs", options=[False, True], default=False),
-                io.Combo.Input("format", options=VideoContainer.as_input(), default="auto"),
-                io.Combo.Input("codec", options=VideoCodec.as_input(), default="auto"),
-            ],
-            outputs=[],
-            hidden=[io.Hidden.prompt, io.Hidden.extra_pnginfo],
-            is_output_node=True,
-        )
+    # ---------- Save Video MXD (auto-increment clean filenames) ----------
+    class SaveVideoMXD(io.ComfyNode):
+        @classmethod
+        def define_schema(cls):
+            return io.Schema(
+                node_id="SaveVideoMXD",
+                display_name="Save Video MXD",
+                category="image/video",
+                description="Save a new version next to the original with clean counters.",
+                inputs=[
+                    io.Video.Input("video"),
+                    io.String.Input("video_path"),
+                    io.Combo.Input("save_to_outputs", options=[False, True], default=False),
+                    io.Combo.Input("format", options=VideoContainer.as_input(), default="auto"),
+                    io.Combo.Input("codec", options=VideoCodec.as_input(), default="auto"),
+                ],
+                outputs=[],
+                hidden=[io.Hidden.prompt, io.Hidden.extra_pnginfo],
+                is_output_node=True,
+            )
 
-    @classmethod
-    def execute(cls, video: VideoInput, video_path: str, save_to_outputs: bool, format: str, codec: str):
-        base_dir, base_filename = os.path.split(video_path)
-        base_name, ext = os.path.splitext(base_filename)
+        @classmethod
+        def execute(cls, video: VideoInput, video_path: str, save_to_outputs: bool, format: str, codec: str):
+            base_dir, base_filename = os.path.split(video_path)
+            base_name, ext = os.path.splitext(base_filename)
 
-        # 🧹 Clean trailing counters like "__001__002" → remove them all
-        base_clean = re.sub(r'(__\d+)+$', '', base_name)
+            # 🧹 Clean trailing counters like "__001__002" → remove them all
+            base_clean = re.sub(r'(__\d+)+$', '', base_name)
 
-        # 🧮 Find the next available counter
-        pattern = re.compile(rf"^{re.escape(base_clean)}__(\d+){re.escape(ext)}$")
-        existing = [
-            int(m.group(1))
-            for f in os.listdir(base_dir)
-            if (m := pattern.match(f))
-        ]
-        next_counter = max(existing, default=0) + 1
+            # 🧮 Find the next available counter
+            pattern = re.compile(rf"^{re.escape(base_clean)}__(\d+){re.escape(ext)}$")
+            existing = [
+                int(m.group(1))
+                for f in os.listdir(base_dir)
+                if (m := pattern.match(f))
+            ]
+            next_counter = max(existing, default=0) + 1
 
-        new_filename = f"{base_clean}__{next_counter:03d}{ext}"
-        save_path = os.path.join(base_dir, new_filename)
+            new_filename = f"{base_clean}__{next_counter:03d}{ext}"
+            save_path = os.path.join(base_dir, new_filename)
 
-        # 💾 Metadata
-        saved_metadata = None
-        if not args.disable_metadata:
-            metadata = {}
-            if cls.hidden.extra_pnginfo is not None:
-                metadata.update(cls.hidden.extra_pnginfo)
-            if cls.hidden.prompt is not None:
-                metadata["prompt"] = cls.hidden.prompt
-            if metadata:
-                saved_metadata = metadata
+            # 💾 Metadata
+            saved_metadata = None
+            if not args.disable_metadata:
+                metadata = {}
+                if cls.hidden.extra_pnginfo is not None:
+                    metadata.update(cls.hidden.extra_pnginfo)
+                if cls.hidden.prompt is not None:
+                    metadata["prompt"] = cls.hidden.prompt
+                if metadata:
+                    saved_metadata = metadata
 
-        # 🚀 Save main copy
-        video.save_to(save_path, format=format, codec=codec, metadata=saved_metadata)
+            # 🚀 Save main copy
+            video.save_to(save_path, format=format, codec=codec, metadata=saved_metadata)
 
-        # 🪣 Optional copy to outputs folder
-        if save_to_outputs:
-            out_dir = folder_paths.get_output_directory()
+            # 🪣 Optional copy to outputs folder
+            if save_to_outputs:
+                out_dir = folder_paths.get_output_directory()
+                os.makedirs(out_dir, exist_ok=True)
+                alt_path = os.path.join(out_dir, new_filename)
+                video.save_to(alt_path, format=format, codec=codec, metadata=saved_metadata)
+                print(f"[SaveVideoMXD] Also saved copy to outputs: {alt_path}")
+
+            print(f"[SaveVideoMXD] Saved clean new version: {new_filename}")
+
+            rel_folder = os.path.relpath(base_dir, folder_paths.get_output_directory())
+            return io.NodeOutput(
+                ui=ui.PreviewVideo([
+                    ui.SavedResult(new_filename, rel_folder, io.FolderType.output)
+                ])
+            )
+
+    class PreviewVideoMXD(io.ComfyNode):
+        @classmethod
+        def define_schema(cls):
+            return io.Schema(
+                node_id="PreviewVideoMXD",
+                display_name="Preview Video MXD",
+                category="image/video",
+                description="Preview a video without saving output.",
+                inputs=[
+                    io.Video.Input("input_video", tooltip="Video to preview."),
+                ],
+                outputs=[
+                    io.Video.Output("output_video", tooltip="Passes the same video forward."),
+                ],
+            )
+
+        @classmethod
+        def execute(cls, input_video: VideoInput):
+            # Save a temporary H264 file so ComfyUI has something to preview
+            out_dir = os.path.join(folder_paths.get_output_directory(), "previews")
             os.makedirs(out_dir, exist_ok=True)
-            alt_path = os.path.join(out_dir, new_filename)
-            video.save_to(alt_path, format=format, codec=codec, metadata=saved_metadata)
-            print(f"[SaveVideoMXD] Also saved copy to outputs: {alt_path}")
 
-        print(f"[SaveVideoMXD] Saved clean new version: {new_filename}")
+            preview_path = os.path.join(out_dir, "preview_temp.mp4")
+            input_video.save_to(preview_path, format="mp4", codec="h264")
 
-        rel_folder = os.path.relpath(base_dir, folder_paths.get_output_directory())
-        return io.NodeOutput(
-            ui=ui.PreviewVideo([
-                ui.SavedResult(new_filename, rel_folder, io.FolderType.output)
-            ])
-        )
+            # ✅ Return the raw video object (not a tuple)
+            return io.NodeOutput(
+                input_video,
+                ui=ui.PreviewVideo([
+                    ui.SavedResult("preview_temp.mp4", "previews", io.FolderType.output)
+                ])
+            )
 
-class PreviewVideoMXD(io.ComfyNode):
-    @classmethod
-    def define_schema(cls):
-        return io.Schema(
-            node_id="PreviewVideoMXD",
-            display_name="Preview Video MXD",
-            category="image/video",
-            description="Preview a video without saving output.",
-            inputs=[
-                io.Video.Input("input_video", tooltip="Video to preview."),
-            ],
-            outputs=[
-                io.Video.Output("output_video", tooltip="Passes the same video forward."),
-            ],
-        )
-
-    @classmethod
-    def execute(cls, input_video: VideoInput):
-        # Save a temporary H264 file so ComfyUI has something to preview
-        out_dir = os.path.join(folder_paths.get_output_directory(), "previews")
-        os.makedirs(out_dir, exist_ok=True)
-
-        preview_path = os.path.join(out_dir, "preview_temp.mp4")
-        input_video.save_to(preview_path, format="mp4", codec="h264")
-
-        # ✅ Return the raw video object (not a tuple)
-        return io.NodeOutput(
-            input_video,
-            ui=ui.PreviewVideo([
-                ui.SavedResult("preview_temp.mp4", "previews", io.FolderType.output)
-            ])
-        )
 
 class GroupVideoFramesMXD:
     CATEGORY = "MXD/Video"
@@ -1754,60 +1769,62 @@ class GroupVideoFramesMXD:
         print(f"[GroupVideoFramesMXD] Split {total} frames into {len(grouped_tensors)} groups of up to {group_size}.")
         return (grouped_tensors,)
 
-class Wan22FirstLastImageToVideoMXD(io.ComfyNode):
-    @classmethod
-    def define_schema(cls):
-        return io.Schema(
-            node_id="Wan22FirstLastImageToVideoMXD",
-            display_name="WAN 2.2 First&Last Image To Video MXD",
-            category="conditioning/video_models",
-            inputs=[
-                io.Conditioning.Input("positive"),
-                io.Conditioning.Input("negative"),
-                io.Vae.Input("vae"),
-                io.Int.Input("length", default=81, min=1, max=nodes.MAX_RESOLUTION, step=4),
-                io.Int.Input("batch_size", default=1, min=1, max=4096),
-                io.Image.Input("start_image", optional=True),
-                io.Image.Input("end_image", optional=True),
-            ],
-            outputs=[
-                io.Conditioning.Output(display_name="positive"),
-                io.Conditioning.Output(display_name="negative"),
-                io.Latent.Output(display_name="latent"),
-            ],
-        )
+if HAVE_COMFY_API:
+    class Wan22FirstLastImageToVideoMXD(io.ComfyNode):
+        @classmethod
+        def define_schema(cls):
+            return io.Schema(
+                node_id="Wan22FirstLastImageToVideoMXD",
+                display_name="WAN 2.2 First&Last Image To Video MXD",
+                category="conditioning/video_models",
+                inputs=[
+                    io.Conditioning.Input("positive"),
+                    io.Conditioning.Input("negative"),
+                    io.Vae.Input("vae"),
+                    io.Int.Input("length", default=81, min=1, max=nodes.MAX_RESOLUTION, step=4),
+                    io.Int.Input("batch_size", default=1, min=1, max=4096),
+                    io.Image.Input("start_image", optional=True),
+                    io.Image.Input("end_image", optional=True),
+                ],
+                outputs=[
+                    io.Conditioning.Output(display_name="positive"),
+                    io.Conditioning.Output(display_name="negative"),
+                    io.Latent.Output(display_name="latent"),
+                ],
+            )
 
-    @classmethod
-    def execute(cls, positive, negative, vae, length, batch_size, start_image=None, end_image=None) -> io.NodeOutput:
-        spacial_scale = vae.spacial_compression_encode()
+        @classmethod
+        def execute(cls, positive, negative, vae, length, batch_size, start_image=None, end_image=None) -> io.NodeOutput:
+            spacial_scale = vae.spacial_compression_encode()
 
-        # Assume incoming images are already pre-sized by upstream nodes.
-        height, width = start_image.shape[1], start_image.shape[2] if start_image is not None else (vae.latent_channels * spacial_scale, vae.latent_channels * spacial_scale)
+            # Assume incoming images are already pre-sized by upstream nodes.
+            height, width = start_image.shape[1], start_image.shape[2] if start_image is not None else (vae.latent_channels * spacial_scale, vae.latent_channels * spacial_scale)
 
-        latent = torch.zeros(
-            [batch_size, vae.latent_channels, ((length - 1) // 4) + 1, height // spacial_scale, width // spacial_scale],
-            device=comfy.model_management.intermediate_device()
-        )
+            latent = torch.zeros(
+                [batch_size, vae.latent_channels, ((length - 1) // 4) + 1, height // spacial_scale, width // spacial_scale],
+                device=comfy.model_management.intermediate_device()
+            )
 
-        image = torch.ones((length, height, width, 3)) * 0.5
-        mask = torch.ones((1, 1, latent.shape[2] * 4, latent.shape[-2], latent.shape[-1]))
+            image = torch.ones((length, height, width, 3)) * 0.5
+            mask = torch.ones((1, 1, latent.shape[2] * 4, latent.shape[-2], latent.shape[-1]))
 
-        if start_image is not None:
-            image[:start_image.shape[0]] = start_image
-            mask[:, :, :start_image.shape[0] + 3] = 0.0
+            if start_image is not None:
+                image[:start_image.shape[0]] = start_image
+                mask[:, :, :start_image.shape[0] + 3] = 0.0
 
-        if end_image is not None:
-            image[-end_image.shape[0]:] = end_image
-            mask[:, :, -end_image.shape[0]:] = 0.0
+            if end_image is not None:
+                image[-end_image.shape[0]:] = end_image
+                mask[:, :, -end_image.shape[0]:] = 0.0
 
-        concat_latent_image = vae.encode(image[:, :, :, :3])
-        mask = mask.view(1, mask.shape[2] // 4, 4, mask.shape[3], mask.shape[4]).transpose(1, 2)
+            concat_latent_image = vae.encode(image[:, :, :, :3])
+            mask = mask.view(1, mask.shape[2] // 4, 4, mask.shape[3], mask.shape[4]).transpose(1, 2)
 
-        positive = node_helpers.conditioning_set_values(positive, {"concat_latent_image": concat_latent_image, "concat_mask": mask})
-        negative = node_helpers.conditioning_set_values(negative, {"concat_latent_image": concat_latent_image, "concat_mask": mask})
+            positive = node_helpers.conditioning_set_values(positive, {"concat_latent_image": concat_latent_image, "concat_mask": mask})
+            negative = node_helpers.conditioning_set_values(negative, {"concat_latent_image": concat_latent_image, "concat_mask": mask})
 
-        out_latent = {"samples": latent}
-        return io.NodeOutput(positive, negative, out_latent)
+            out_latent = {"samples": latent}
+            return io.NodeOutput(positive, negative, out_latent)
+
 
 # ---------- Node registration ----------
 NODE_CLASS_MAPPINGS = {
@@ -1819,17 +1836,21 @@ NODE_CLASS_MAPPINGS = {
     "SaveLatent_I2V_MXD": SaveLatent_I2V_MXD,
     "LoadLatent_I2V_MXD": LoadLatent_I2V_MXD,
     "LoadLatents_FromFolder_I2V_MXD": LoadLatents_FromFolder_I2V_MXD,
-    "Wan22ImageToVideoMXD": Wan22ImageToVideoMXD,
     "WAN22_I2V_Image_Scaler_MXD": WAN22_I2V_Image_Scaler_MXD,
     "Frames_Remove_From_Start_MXD": Frames_Remove_From_Start_MXD,
-    "CombineVideos_MXD": CombineVideos_MXD,
-    "LoadVideoMXD": LoadVideoMXD,
-    "SaveVideoMXD": SaveVideoMXD,
-    "PreviewVideoMXD": PreviewVideoMXD,
     "GroupVideoFramesMXD": GroupVideoFramesMXD,
-    "Wan22FirstLastImageToVideoMXD": Wan22FirstLastImageToVideoMXD,
     "Frames_Select_StartEnd_MXD": Frames_Select_StartEnd_MXD,
 }
+
+if HAVE_COMFY_API:
+    NODE_CLASS_MAPPINGS.update({
+        "Wan22ImageToVideoMXD": Wan22ImageToVideoMXD,
+        "CombineVideos_MXD": CombineVideos_MXD,
+        "LoadVideoMXD": LoadVideoMXD,
+        "SaveVideoMXD": SaveVideoMXD,
+        "PreviewVideoMXD": PreviewVideoMXD,
+        "Wan22FirstLastImageToVideoMXD": Wan22FirstLastImageToVideoMXD,
+    })
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "SaveLatentMXD": "Save Latent MXD",
@@ -1840,14 +1861,35 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SaveLatent_I2V_MXD": "Save Latent I2V MXD",
     "LoadLatent_I2V_MXD": "Load Latent I2V MXD",
     "LoadLatents_FromFolder_I2V_MXD": "Load Latent Batch I2V MXD",
-    "Wan22ImageToVideoMXD": "Wan 2.2 Image to Video MXD",
     "WAN22_I2V_Image_Scaler_MXD": "Image Scaler Wan 2.2 I2V MXD",
     "Frames_Remove_From_Start_MXD": "Remove Frames From Start MXD",
-    "CombineVideos_MXD": "Combine Videos MXD",
-    "LoadVideoMXD": "Load Video MXD",
-    "SaveVideoMXD": "Save Video MXD",
-    "PreviewVideoMXD": "Preview Video MXD",
     "GroupVideoFramesMXD": "Group Video Frames MXD",
-    "Wan22FirstLastImageToVideoMXD": "Wan 2.2 I2V First & Last Frame MXD",
     "Frames_Select_StartEnd_MXD": "Select Frames MXD",
 }
+
+if HAVE_COMFY_API:
+    NODE_DISPLAY_NAME_MAPPINGS.update({
+        "Wan22ImageToVideoMXD": "Wan 2.2 Image to Video MXD",
+        "CombineVideos_MXD": "Combine Videos MXD",
+        "LoadVideoMXD": "Load Video MXD",
+        "SaveVideoMXD": "Save Video MXD",
+        "PreviewVideoMXD": "Preview Video MXD",
+        "Wan22FirstLastImageToVideoMXD": "Wan 2.2 I2V First & Last Frame MXD",
+    })
+
+def _add_mxd_aliases(class_map, display_map):
+    alias_sources = {}
+    for key in list(class_map.keys()):
+        if "MXD" in key.upper():
+            continue
+        alias = f"{key} MXD"
+        if alias in class_map:
+            continue
+        class_map[alias] = class_map[key]
+        alias_sources[alias] = key
+    for alias, source in alias_sources.items():
+        if alias not in display_map:
+            display_map[alias] = display_map.get(source, alias)
+    return alias_sources
+
+_add_mxd_aliases(NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS)
