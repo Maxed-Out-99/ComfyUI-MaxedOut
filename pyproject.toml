@@ -1,5 +1,5 @@
 [project]
-name = "MaxedOut"
+name = "maxedout"
 description = "Custom ComfyUI nodes used in Maxed Out workflows (SDXL, Flux, Wan 2.2, etc.)"
 version = "1.6.9"
 license = {file = "LICENSE"} 
