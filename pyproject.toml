@@ -1,5 +1,5 @@
 [project]
-name = "maxedout"
+name = "ComfyUI-MaxedOut"
 description = "Custom ComfyUI nodes used in Maxed Out workflows (SDXL, Flux, Wan 2.2, etc.)"
 version = "1.6.9"
 license = {file = "LICENSE"} 
@@ -28,7 +28,7 @@ Documentation = "https://github.com/Maxed-Out-99/ComfyUI-MaxedOut/wiki"
 "Bug Tracker" = "https://github.com/Maxed-Out-99/ComfyUI-MaxedOut/issues"
 
 [tool.comfy]
-PublisherId = "maxedout"
+PublisherId = "ComfyUI-MaxedOut"
 DisplayName = "Maxed Out"
 Icon = "https://github.com/Maxed-Out-99/ComfyUI-MaxedOut/blob/main/assets/maxedout_icon.png?raw=true"
 includes = [] 
