@@ -1,4 +1,4 @@
-﻿NAMESPACE = "mxd"
+NAMESPACE = "mxd"
 
 
 def get_name(name: str):

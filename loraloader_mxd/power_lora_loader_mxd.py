@@ -1,4 +1,4 @@
-﻿import folder_paths
+import folder_paths
 
 from typing import Union
 

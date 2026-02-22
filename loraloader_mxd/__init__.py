@@ -1,4 +1,4 @@
-﻿from .power_lora_loader_mxd import MxdPowerLoraLoader
+from .power_lora_loader_mxd import MxdPowerLoraLoader
 from .server import routes_model_info as _routes_model_info  # noqa: F401
 
 NODE_CLASS_MAPPINGS = {

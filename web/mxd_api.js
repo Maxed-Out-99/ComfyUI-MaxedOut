@@ -1,4 +1,4 @@
-﻿class MxdApi {
+class MxdApi {
   constructor(baseUrl) {
     this.getLorasPromise = null;
     this.setBaseUrl(baseUrl);

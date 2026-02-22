@@ -1,4 +1,4 @@
-﻿import { app } from "../../scripts/app.js";
+import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { getResolver, wait } from "./mxd_shared_utils.js";
 import { MxdHelpDialog } from "./mxd_dialog.js";

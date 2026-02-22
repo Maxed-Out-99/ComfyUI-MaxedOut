@@ -1,4 +1,4 @@
-﻿# ComfyUI-MaxedOut
+# ComfyUI-MaxedOut
 Custom ComfyUI nodes used in Maxed Out workflows (SDXL, Flux, Wan 2.2, etc.).
 
 ## Included Nodes

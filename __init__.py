@@ -1,4 +1,4 @@
-﻿import importlib
+import importlib
 
 WEB_DIRECTORY = "web"
 

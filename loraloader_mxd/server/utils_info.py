@@ -1,4 +1,4 @@
-﻿import hashlib
+import hashlib
 import json
 import os
 import re

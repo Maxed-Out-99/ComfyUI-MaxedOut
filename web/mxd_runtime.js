@@ -1,4 +1,4 @@
-﻿import { app } from "../../scripts/app.js";
+import { app } from "../../scripts/app.js";
 
 class LogSession {
   constructor(name) {

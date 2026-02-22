@@ -1,4 +1,4 @@
-﻿import { createElement as $el, getClosestOrSelf, setAttributes } from "./mxd_utils_dom.js";
+import { createElement as $el, getClosestOrSelf, setAttributes } from "./mxd_utils_dom.js";
 export class MxdDialog extends EventTarget {
     constructor(options) {
         super();

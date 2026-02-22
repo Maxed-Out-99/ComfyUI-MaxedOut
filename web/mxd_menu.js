@@ -1,4 +1,4 @@
-﻿import { generateId, wait } from "./mxd_shared_utils.js";
+import { generateId, wait } from "./mxd_shared_utils.js";
 import { createElement as $el, getClosestOrSelf, setAttributes } from "./mxd_utils_dom.js";
 class Menu {
     constructor(options) {

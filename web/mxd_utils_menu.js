@@ -1,4 +1,4 @@
-﻿import { app } from "../../scripts/app.js";
+import { app } from "../../scripts/app.js";
 import { mxdApi } from "./mxd_api.js";
 
 export async function showLoraChooser(event, callback, parentMenu, loras) {

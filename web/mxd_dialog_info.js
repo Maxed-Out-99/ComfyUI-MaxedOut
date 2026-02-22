@@ -1,4 +1,4 @@
-﻿import { MxdDialog } from "./mxd_dialog.js";
+import { MxdDialog } from "./mxd_dialog.js";
 import {
   createElement as $el,
   empty,

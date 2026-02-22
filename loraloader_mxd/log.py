@@ -1,4 +1,4 @@
-﻿import time
+import time
 
 NAME = "ComfyUI-MaxedOut/LoraLoader-MXD"
 

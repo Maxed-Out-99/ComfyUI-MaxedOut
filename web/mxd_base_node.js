@@ -1,4 +1,4 @@
-﻿import { app } from "../../scripts/app.js";
+import { app } from "../../scripts/app.js";
 import { ComfyWidgets } from "../../scripts/widgets.js";
 import { defineProperty, moveArrayItem } from "./mxd_shared_utils.js";
 

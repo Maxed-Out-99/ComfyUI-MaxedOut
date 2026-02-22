@@ -1,4 +1,4 @@
-﻿var _a;
+var _a;
 
 import { app } from "../../scripts/app.js";
 import { MxdBaseServerNode } from "./mxd_base_node.js";

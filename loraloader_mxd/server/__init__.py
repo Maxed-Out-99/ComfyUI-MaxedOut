@@ -1,1 +1,1 @@
-﻿from . import routes_model_info  # noqa: F401
+from . import routes_model_info  # noqa: F401
