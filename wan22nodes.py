@@ -1266,6 +1266,107 @@ def _wan22_is_valid_dim(w, h):
     return (w, h) in _WAN22_VALID_RES
 
 
+def _wan22_pick_bucket(iw, ih, tier, crop_to_fit):
+    is_squareish = _is_squareish(iw, ih)
+    is_landscape = iw >= ih
+
+    # --- Square handling ---
+    if is_squareish:
+        if tier == "720p":
+            return (720, 720)
+        return (624, 624)
+
+    # --- Explicit tiers ---
+    if tier == "480p":
+        return _closest_bucket(iw, ih, [(832, 480)] if is_landscape else [(480, 832)], cover=crop_to_fit)
+    if tier == "720p":
+        return _closest_bucket(iw, ih, [(1280, 720)] if is_landscape else [(720, 1280)], cover=crop_to_fit)
+
+    # --- Auto tier logic ---
+    buckets_480 = [(832, 480)] if is_landscape else [(480, 832)]
+    buckets_720 = [(1280, 720)] if is_landscape else [(720, 1280)]
+    iw_ih = iw * ih
+    area_480, area_720 = 832 * 480, 1280 * 720
+    scale_to_480 = abs(iw_ih - area_480) / area_480
+    scale_to_720 = abs(iw_ih - area_720) / area_720
+
+    # prefer minimal scaling
+    if iw <= 832 and ih <= 480:
+        return _closest_bucket(iw, ih, buckets_480, cover=crop_to_fit)
+    return _closest_bucket(iw, ih, buckets_480 if scale_to_480 <= scale_to_720 else buckets_720, cover=crop_to_fit)
+
+
+def _wan22_scale_image_core(image, tier="Auto", crop_to_fit=False):
+    """
+    Shared WAN 2.2 scaler core.
+    Returns (scaled_image, out_w, out_h, did_passthrough).
+    """
+    _, ih, iw, _ = image.shape
+
+    # --- Safe Auto logic ---
+    if tier == "Safe Auto":
+        # passthrough if already WAN-safe
+        if _wan22_is_valid_dim(iw, ih):
+            return image, iw, ih, True
+
+        area = iw * ih
+        area_480, area_720 = 832 * 480, 1280 * 720
+        min_area, max_area = int(area_480 * 0.5), int(area_720 * 1.8)
+
+        if area < min_area or area > max_area:
+            size_label = "small" if area < min_area else "large"
+            raise ValueError(
+                f"[WAN22_I2V_Image_Scaler_MXD] Input resolution {iw}x{ih} is too {size_label} for WAN 2.2 video buckets.\n"
+                "WAN 2.2 works best around:\n"
+                "  - 480p tier ~= 832x480 (or 480x832)\n"
+                "  - 720p tier ~= 1280x720 (or 720x1280)\n"
+                "  - Squares: 624x624 or 720x720\n\n"
+                "Please use a source closer to 480p/720p, or first process it "
+                "through your WAN 2.2 workflow. This ensures extend runs without mismatch."
+            )
+        # fallback to Auto scaling
+        tier = "Auto"
+
+    # --- Normal path (Auto / 480p / 720p) ---
+    bw, bh = _wan22_pick_bucket(iw, ih, tier, crop_to_fit)
+    is_squareish = _is_squareish(iw, ih)
+
+    if is_squareish:
+        crop_to_fit = False
+
+    if crop_to_fit:
+        bw, bh = _safe_hw(_ceil16(bw), _ceil16(bh))
+        out = _resize_then_center_crop(image, bw, bh)
+    else:
+        bw, bh = _safe_hw(_floor16(bw), _floor16(bh))
+        out, _, _ = _resize_fit_inside(image, bw, bh)
+
+    return out, int(out.shape[2]), int(out.shape[1]), False
+
+
+def _select_frames_start_end(frames, count=1, offset=1, mode="end"):
+    total = int(frames.shape[0])
+    if total <= 0:
+        raise ValueError("No frames available for selection.")
+
+    # Clamp offset and count
+    offset = max(1, min(offset, total))
+    count = max(1, min(count, total - offset + 1))
+
+    if mode == "start":
+        start_idx = offset - 1
+        end_idx = start_idx + count
+        selected = frames[start_idx:end_idx].clone()
+    elif mode == "end":
+        start_idx = max(0, total - offset - count + 1)
+        end_idx = start_idx + count
+        selected = frames[start_idx:end_idx].clone()
+    else:
+        raise ValueError(f"Invalid mode '{mode}'. Expected 'start' or 'end'.")
+
+    return selected
+
+
 class WAN22_I2V_Image_Scaler_MXD:
     """
     MXD Image Scaler for WAN 2.2 (NO PADDING)
@@ -1338,6 +1439,9 @@ class WAN22_I2V_Image_Scaler_MXD:
     # Main function
     # -----------------------------
     def scale(self, image, tier="Auto", crop_to_fit=False):
+        out, _, _, _ = _wan22_scale_image_core(image, tier=tier, crop_to_fit=crop_to_fit)
+        return (out,)
+
         _, ih, iw, _ = image.shape
 
         # --- Safe Auto logic ---
@@ -1415,6 +1519,9 @@ class Frames_Select_StartEnd_MXD:
     CATEGORY     = "MXD/images"
 
     def main(self, frames=None, count=1, offset=1, mode="end"):
+        selected = _select_frames_start_end(frames, count=count, offset=offset, mode=mode)
+        return (selected,)
+
         total = frames.shape[0]
 
         # Clamp offset and count
@@ -1493,14 +1600,95 @@ if HAVE_COMFY_API:
             # ✅ Correct way: concatenate frame tensors along batch/time dimension (dim=0)
             frames_a = torch.stack(comp_a.images) if isinstance(comp_a.images, list) else comp_a.images
             frames_b = torch.stack(comp_b.images) if isinstance(comp_b.images, list) else comp_b.images
+            if frames_a.shape[1] != frames_b.shape[1] or frames_a.shape[2] != frames_b.shape[2]:
+                raise ValueError(
+                    "Resolution mismatch in CombineVideos_MXD: "
+                    f"front_video={frames_a.shape[2]}x{frames_a.shape[1]}, "
+                    f"back_video={frames_b.shape[2]}x{frames_b.shape[1]}. "
+                    "Use 'WAN 2.2 Video Prep I2V MXD' before WAN generation so scaled base video and generated clip match."
+                )
             combined_images = torch.cat([frames_a, frames_b], dim=0)
 
             # ✅ Combine audio sequentially
             combined_audio = None
             if comp_a.audio is not None or comp_b.audio is not None:
-                audio_a = comp_a.audio if comp_a.audio is not None else torch.zeros((1, 0))
-                audio_b = comp_b.audio if comp_b.audio is not None else torch.zeros((1, 0))
-                combined_audio = torch.cat([audio_a, audio_b], dim=1)
+                def _extract_audio(audio_obj):
+                    if audio_obj is None:
+                        return None, None, None, None
+                    if torch.is_tensor(audio_obj):
+                        return audio_obj, None, "tensor", None
+                    if isinstance(audio_obj, dict):
+                        wave_key = "waveform" if "waveform" in audio_obj else ("samples" if "samples" in audio_obj else None)
+                        if wave_key is None or not torch.is_tensor(audio_obj.get(wave_key)):
+                            raise TypeError(f"Unsupported audio dict format. Keys: {list(audio_obj.keys())}")
+                        return audio_obj[wave_key], audio_obj.get("sample_rate"), "dict", wave_key
+                    waveform = getattr(audio_obj, "waveform", None)
+                    sample_rate = getattr(audio_obj, "sample_rate", None)
+                    if torch.is_tensor(waveform):
+                        return waveform, sample_rate, "object", None
+                    raise TypeError(f"Unsupported audio payload type: {type(audio_obj).__name__}")
+
+                wave_a, sr_a, kind_a, wave_key_a = _extract_audio(comp_a.audio)
+                wave_b, sr_b, kind_b, wave_key_b = _extract_audio(comp_b.audio)
+                rank_a = wave_a.ndim if wave_a is not None else None
+                rank_b = wave_b.ndim if wave_b is not None else None
+
+                def _to_bct(w):
+                    if w is None:
+                        return None
+                    if w.ndim == 1:
+                        return w.unsqueeze(0).unsqueeze(0)  # [1,1,T]
+                    if w.ndim == 2:
+                        return w.unsqueeze(0)  # [1,C,T]
+                    if w.ndim == 3:
+                        return w  # [B,C,T]
+                    raise ValueError(f"Unsupported audio tensor rank: {w.ndim}")
+
+                wave_a = _to_bct(wave_a)
+                wave_b = _to_bct(wave_b)
+
+                if wave_a is None and wave_b is not None:
+                    wave_a = torch.zeros((wave_b.shape[0], wave_b.shape[1], 0), dtype=wave_b.dtype, device=wave_b.device)
+                if wave_b is None and wave_a is not None:
+                    wave_b = torch.zeros((wave_a.shape[0], wave_a.shape[1], 0), dtype=wave_a.dtype, device=wave_a.device)
+
+                if wave_a is not None and wave_b is not None:
+                    if wave_a.shape[0] != wave_b.shape[0]:
+                        if wave_a.shape[0] == 1:
+                            wave_a = wave_a.expand(wave_b.shape[0], -1, -1)
+                        elif wave_b.shape[0] == 1:
+                            wave_b = wave_b.expand(wave_a.shape[0], -1, -1)
+                        else:
+                            raise ValueError(f"Audio batch mismatch: {wave_a.shape[0]} vs {wave_b.shape[0]}")
+
+                    if wave_a.shape[1] != wave_b.shape[1]:
+                        if wave_a.shape[1] == 1:
+                            wave_a = wave_a.expand(-1, wave_b.shape[1], -1)
+                        elif wave_b.shape[1] == 1:
+                            wave_b = wave_b.expand(-1, wave_a.shape[1], -1)
+                        else:
+                            raise ValueError(f"Audio channel mismatch: {wave_a.shape[1]} vs {wave_b.shape[1]}")
+
+                if sr_a is not None and sr_b is not None and sr_a != sr_b:
+                    raise ValueError(f"Audio sample-rate mismatch: {sr_a} vs {sr_b}")
+
+                combined_wave = torch.cat([wave_a, wave_b], dim=2)
+                out_sr = sr_a if sr_a is not None else sr_b
+
+                target_rank = rank_a if rank_a is not None else rank_b
+                if target_rank == 1 and combined_wave.shape[0] == 1 and combined_wave.shape[1] == 1:
+                    combined_wave = combined_wave.squeeze(0).squeeze(0)
+                elif target_rank == 2 and combined_wave.shape[0] == 1:
+                    combined_wave = combined_wave.squeeze(0)
+
+                out_kind = kind_a if kind_a is not None else kind_b
+                if out_kind == "dict":
+                    out_key = wave_key_a if kind_a == "dict" else wave_key_b
+                    combined_audio = {out_key or "waveform": combined_wave}
+                    if out_sr is not None:
+                        combined_audio["sample_rate"] = out_sr
+                else:
+                    combined_audio = combined_wave
 
 
 
@@ -1513,6 +1701,133 @@ if HAVE_COMFY_API:
             )
 
             return (combined_video,)
+
+    class WAN22_I2V_Video_Prep_MXD:
+        """
+        Prepare a source video for iterative WAN 2.2 extension:
+        - scale entire video using WAN bucket logic
+        - output start/end frames from the full scaled video
+        - keep default workflow simple for common use
+        """
+        CATEGORY = "MXD/video"
+        FUNCTION = "prepare"
+        RETURN_TYPES = ("VIDEO", "IMAGE", "IMAGE", "INT", "INT", "FLOAT")
+        RETURN_NAMES = ("scaled_video", "start_image", "end_image", "width", "height", "fps")
+
+        @classmethod
+        def INPUT_TYPES(cls):
+            return {
+                "required": {
+                    "video": ("VIDEO",),
+                    "tier": (["Auto", "480p", "720p", "Safe Auto"], {"default": "Auto"}),
+                    "crop_to_fit": ("BOOLEAN", {
+                        "default": True,
+                        "label_on": "Perfect Fit (Crops Edges)",
+                        "label_off": "Closest Fit (No Crop)"
+                    }),
+                },
+            }
+
+        def prepare(self, video, tier="Auto", crop_to_fit=True):
+            comp = video.get_components()
+            if isinstance(comp.images, list):
+                if len(comp.images) == 0:
+                    raise ValueError("[WAN22_I2V_Video_Prep_MXD] Input video has zero frames.")
+                frames = torch.stack(comp.images)
+            else:
+                frames = comp.images
+
+            if frames is None:
+                raise ValueError("[WAN22_I2V_Video_Prep_MXD] Input video has no frames.")
+            if frames.ndim == 3:
+                frames = frames.unsqueeze(0)
+            if frames.ndim != 4:
+                raise ValueError(f"[WAN22_I2V_Video_Prep_MXD] Unexpected frame tensor shape: {tuple(frames.shape)}")
+            if frames.shape[0] <= 0:
+                raise ValueError("[WAN22_I2V_Video_Prep_MXD] Input video has zero frames.")
+
+            scaled_frames, out_w, out_h, _ = _wan22_scale_image_core(
+                frames, tier=tier, crop_to_fit=crop_to_fit
+            )
+
+            start_image = scaled_frames[0:1].clone()
+            end_image = scaled_frames[-1:].clone()
+
+            scaled_video = VideoFromComponents(
+                VideoComponents(
+                    images=scaled_frames,
+                    audio=comp.audio,
+                    frame_rate=comp.frame_rate,
+                )
+            )
+
+            fps = float(comp.frame_rate) if comp.frame_rate is not None else 0.0
+            return (scaled_video, start_image, end_image, out_w, out_h, fps)
+
+    class WAN22_I2V_Video_Prep_Advanced_MXD:
+        """
+        Advanced variant of WAN22_I2V_Video_Prep_MXD with frame-selection controls.
+        """
+        CATEGORY = "MXD/video"
+        FUNCTION = "prepare"
+        RETURN_TYPES = ("VIDEO", "IMAGE", "IMAGE", "IMAGE", "INT", "INT", "FLOAT")
+        RETURN_NAMES = ("scaled_video", "selected_frames", "start_image", "end_image", "width", "height", "fps")
+
+        @classmethod
+        def INPUT_TYPES(cls):
+            return {
+                "required": {
+                    "video": ("VIDEO",),
+                    "tier": (["Auto", "480p", "720p", "Safe Auto"], {"default": "Auto"}),
+                    "crop_to_fit": ("BOOLEAN", {
+                        "default": True,
+                        "label_on": "Perfect Fit (Crops Edges)",
+                        "label_off": "Closest Fit (No Crop)"
+                    }),
+                    "mode": (["start", "end"], {"default": "end"}),
+                    "count": ("INT", {"default": 1, "min": 1, "max": 10000}),
+                    "offset": ("INT", {"default": 1, "min": 1, "max": 10000}),
+                },
+            }
+
+        def prepare(self, video, tier="Auto", crop_to_fit=True, mode="end", count=1, offset=1):
+            comp = video.get_components()
+            if isinstance(comp.images, list):
+                if len(comp.images) == 0:
+                    raise ValueError("[WAN22_I2V_Video_Prep_Advanced_MXD] Input video has zero frames.")
+                frames = torch.stack(comp.images)
+            else:
+                frames = comp.images
+
+            if frames is None:
+                raise ValueError("[WAN22_I2V_Video_Prep_Advanced_MXD] Input video has no frames.")
+            if frames.ndim == 3:
+                frames = frames.unsqueeze(0)
+            if frames.ndim != 4:
+                raise ValueError(f"[WAN22_I2V_Video_Prep_Advanced_MXD] Unexpected frame tensor shape: {tuple(frames.shape)}")
+            if frames.shape[0] <= 0:
+                raise ValueError("[WAN22_I2V_Video_Prep_Advanced_MXD] Input video has zero frames.")
+
+            scaled_frames, out_w, out_h, _ = _wan22_scale_image_core(
+                frames, tier=tier, crop_to_fit=crop_to_fit
+            )
+
+            selected_frames = _select_frames_start_end(
+                scaled_frames, count=count, offset=offset, mode=mode
+            )
+            start_image = selected_frames[0:1].clone()
+            end_image = selected_frames[-1:].clone()
+
+            scaled_video = VideoFromComponents(
+                VideoComponents(
+                    images=scaled_frames,
+                    audio=comp.audio,
+                    frame_rate=comp.frame_rate,
+                )
+            )
+
+            fps = float(comp.frame_rate) if comp.frame_rate is not None else 0.0
+            return (scaled_video, selected_frames, start_image, end_image, out_w, out_h, fps)
     
     # ---------- Load Video MXD (video-only picker with refresh) ----------
     class LoadVideoMXD:
@@ -1535,7 +1850,6 @@ if HAVE_COMFY_API:
                         "remote": {
                             "route": "/mxd/videos/input",
                             "refresh_button": True,
-                            "control_after_refresh": "first",
                         },
                     }),
                 }
@@ -1692,13 +2006,15 @@ if HAVE_COMFY_API:
                 node_id="PreviewVideoMXD",
                 display_name="Preview Video MXD",
                 category="image/video",
-                description="Preview a video without saving output.",
+                description="Preview a video without saving output (optional pass-through).",
                 inputs=[
                     io.Video.Input("input_video", tooltip="Video to preview."),
                 ],
                 outputs=[
                     io.Video.Output("output_video", tooltip="Passes the same video forward."),
                 ],
+                # Allow this node to run even when output_video is not connected.
+                is_output_node=True,
             )
 
         @classmethod
@@ -1845,6 +2161,8 @@ NODE_CLASS_MAPPINGS = {
 if HAVE_COMFY_API:
     NODE_CLASS_MAPPINGS.update({
         "Wan22ImageToVideoMXD": Wan22ImageToVideoMXD,
+        "WAN22_I2V_Video_Prep_MXD": WAN22_I2V_Video_Prep_MXD,
+        "WAN22_I2V_Video_Prep_Advanced_MXD": WAN22_I2V_Video_Prep_Advanced_MXD,
         "CombineVideos_MXD": CombineVideos_MXD,
         "LoadVideoMXD": LoadVideoMXD,
         "SaveVideoMXD": SaveVideoMXD,
@@ -1870,6 +2188,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
 if HAVE_COMFY_API:
     NODE_DISPLAY_NAME_MAPPINGS.update({
         "Wan22ImageToVideoMXD": "Wan 2.2 Image to Video MXD",
+        "WAN22_I2V_Video_Prep_MXD": "WAN 2.2 Video Prep I2V MXD",
+        "WAN22_I2V_Video_Prep_Advanced_MXD": "WAN 2.2 Video Prep I2V MXD Advanced",
         "CombineVideos_MXD": "Combine Videos MXD",
         "LoadVideoMXD": "Load Video MXD",
         "SaveVideoMXD": "Save Video MXD",

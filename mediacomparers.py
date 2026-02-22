@@ -1,6 +1,10 @@
 """
 Standalone Image Comparer Node extracted from the original project.
 """
+import os
+import time
+
+import folder_paths
 from nodes import PreviewImage, SaveImage
 
 # --- Constants ---
@@ -118,13 +122,74 @@ class MxdImageComparerSave(PreviewImage):
             return {"ui": result_ui}
         return {}
 
+
+class MxdVideoComparer:
+    """Compare two videos in-node and pass through the new video."""
+
+    NAME = "Video Comparer MXD"
+    CATEGORY = "MXD/video"
+    FUNCTION = "compare_videos"
+    OUTPUT_NODE = True
+    DESCRIPTION = "Compares original/new videos in-node; new video displays first and is passed through."
+    RETURN_TYPES = ("VIDEO",)
+    RETURN_NAMES = ("new_video",)
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "new_video": ("VIDEO", {"tooltip": "New video to compare. This output is passed through."}),
+            },
+            "optional": {
+                "original_video": ("VIDEO", {"tooltip": "Original video for comparison."}),
+            },
+        }
+
+    def _save_preview_video(self, video_obj, filename):
+        if video_obj is None:
+            return None
+
+        previews_dir = os.path.join(folder_paths.get_output_directory(), "previews")
+        os.makedirs(previews_dir, exist_ok=True)
+
+        preview_path = os.path.join(previews_dir, filename)
+        video_obj.save_to(preview_path, format="mp4", codec="h264")
+        return {
+            "filename": filename,
+            "subfolder": "previews",
+            "type": "output",
+        }
+
+    def compare_videos(self, new_video, original_video=None):
+        stamp = int(time.time() * 1000)
+
+        new_preview = self._save_preview_video(new_video, f"mxd_video_compare_new_{stamp}.mp4")
+        original_preview = self._save_preview_video(
+            original_video,
+            f"mxd_video_compare_original_{stamp}.mp4",
+        )
+
+        result_ui = {
+            "a_videos": [new_preview] if new_preview else [],
+            "b_videos": [original_preview] if original_preview else [],
+            "videos": [],
+        }
+        result_ui["videos"] = result_ui["a_videos"] + result_ui["b_videos"]
+
+        return {
+            "ui": result_ui,
+            "result": (new_video,),
+        }
+
 # --- Registration ---
 NODE_CLASS_MAPPINGS = {
     MxdImageComparerSave.NAME: MxdImageComparerSave,
+    MxdVideoComparer.NAME: MxdVideoComparer,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     MxdImageComparerSave.NAME: "Image Comparer + Save MXD",
+    MxdVideoComparer.NAME: "Video Comparer MXD",
 }
 
 WEB_DIRECTORY = "."

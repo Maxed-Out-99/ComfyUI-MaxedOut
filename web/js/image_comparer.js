@@ -4,7 +4,11 @@ import { ComfyWidgets } from "../../../scripts/widgets.js";
 
 // --- Constants ---
 const NODE_TYPE_STRING = "Image Comparer + Save MXD";
-const NODE_TYPE_STRINGS = new Set([NODE_TYPE_STRING]);
+const NODE_TYPE_STRINGS = new Set([
+    NODE_TYPE_STRING,
+    "Video Comparer MXD",
+    "VideoComparerMXD",
+]);
 
 // --- Canvas Utilities (Inline) ---
 function measureText(ctx, str) {
@@ -122,8 +126,12 @@ class MxdBaseWidget {
 }
 
 // --- Helper Functions ---
-function imageDataToUrl(data) {
-    return api.apiURL(`/view?filename=${encodeURIComponent(data.filename)}&type=${data.type}&subfolder=${data.subfolder}${app.getPreviewFormatParam()}${app.getRandParam()}`);
+function mediaDataToUrl(data, mediaType = "image") {
+    const previewParam = mediaType === "image" ? app.getPreviewFormatParam() : "";
+    const subfolder = data.subfolder || "";
+    return api.apiURL(
+        `/view?filename=${encodeURIComponent(data.filename)}&type=${data.type}&subfolder=${encodeURIComponent(subfolder)}${previewParam}${app.getRandParam()}`
+    );
 }
 
 
@@ -222,13 +230,14 @@ class MxdImageComparerWidget extends MxdBaseWidget {
         if (Array.isArray(v)) {
             cleanedVal = v.map((d, i) => {
                 if (!d || typeof d === "string") {
-                    d = { url: d, name: i == 0 ? "A" : "B", selected: true };
+                    d = { url: d, name: i == 0 ? "A" : "B", selected: true, mediaType: "image" };
                 }
+                d.mediaType = d.mediaType || "image";
                 return d;
             });
         }
         else {
-            cleanedVal = v.images || [];
+            cleanedVal = (v.images || []).map((d) => ({ mediaType: "image", ...d }));
         }
         if (cleanedVal.length > 2) {
             const hasAAndB = cleanedVal.some((i) => i.name.startsWith("A")) &&
@@ -252,14 +261,48 @@ class MxdImageComparerWidget extends MxdBaseWidget {
     get value() {
         return this._value;
     }
+    createMediaElement(sel) {
+        if (sel.mediaType === "video") {
+            const video = document.createElement("video");
+            video.src = sel.url;
+            video.muted = true;
+            video.loop = true;
+            video.autoplay = true;
+            video.playsInline = true;
+            video.preload = "auto";
+            video.onloadeddata = () => this.node.setDirtyCanvas(true, true);
+            video.play().catch(() => { });
+            return video;
+        }
+        const img = new Image();
+        img.src = sel.url;
+        return img;
+    }
+    getMediaSize(media) {
+        if (!media) {
+            return null;
+        }
+        if (media instanceof HTMLVideoElement) {
+            if (!media.videoWidth || !media.videoHeight) {
+                return null;
+            }
+            return { width: media.videoWidth, height: media.videoHeight };
+        }
+        if (!media.naturalWidth || !media.naturalHeight) {
+            return null;
+        }
+        return { width: media.naturalWidth, height: media.naturalHeight };
+    }
     setSelected(selected) {
         this._value.images.forEach((d) => (d.selected = false));
         this.node.imgs.length = 0;
         for (const sel of selected) {
             if (!sel.img) {
-                sel.img = new Image();
-                sel.img.src = sel.url;
+                sel.img = this.createMediaElement(sel);
                 this.node.imgs.push(sel.img);
+            }
+            if (sel.mediaType === "video" && sel.img instanceof HTMLVideoElement) {
+                sel.img.play().catch(() => { });
             }
             sel.selected = true;
         }
@@ -302,28 +345,31 @@ class MxdImageComparerWidget extends MxdBaseWidget {
         if (isClickMode) {
             const image = this.selected[this.node.isPointerDown ? 1 : 0];
             this.updateAutoSize(image, y);
-            this.drawImage(ctx, image, y);
+            this.drawMedia(ctx, image, y);
         }
         else {
             const image = this.selected[0];
             this.updateAutoSize(image, y);
-            this.drawImage(ctx, image, y);
+            this.drawMedia(ctx, image, y);
             if (node.isPointerOver) {
-                this.drawImage(ctx, this.selected[1], y, this.node.pointerOverPos[0]);
+                this.drawMedia(ctx, this.selected[1], y, this.node.pointerOverPos[0]);
             }
+        }
+        if (this.selected.some((item) => item.mediaType === "video")) {
+            this.node.setDirtyCanvas(true, false);
         }
     }
     updateAutoSize(image, y) {
-        var _a, _b;
         const initial = this.node._mxdInitialSize;
         if (initial && (this.node.size[0] !== initial[0] || this.node.size[1] !== initial[1])) {
             return;
         }
-        if (!((_a = image === null || image === void 0 ? void 0 : image.img) === null || _a === void 0 ? void 0 : _a.naturalWidth) || !((_b = image === null || image === void 0 ? void 0 : image.img) === null || _b === void 0 ? void 0 : _b.naturalHeight)) {
+        const mediaSize = this.getMediaSize(image === null || image === void 0 ? void 0 : image.img);
+        if (!mediaSize) {
             return;
         }
         const nodeWidth = this.node.size[0];
-        const imageAspect = image.img.naturalWidth / image.img.naturalHeight;
+        const imageAspect = mediaSize.width / mediaSize.height;
         const desiredImageHeight = Math.round(nodeWidth / imageAspect);
         const desiredHeight = y + desiredImageHeight;
         if (desiredHeight > this.node.size[1]) {
@@ -343,13 +389,13 @@ class MxdImageComparerWidget extends MxdBaseWidget {
         }
         this.setSelected(selected);
     }
-    drawImage(ctx, image, y, cropX) {
-        var _a, _b;
-        if (!((_a = image === null || image === void 0 ? void 0 : image.img) === null || _a === void 0 ? void 0 : _a.naturalWidth) || !((_b = image === null || image === void 0 ? void 0 : image.img) === null || _b === void 0 ? void 0 : _b.naturalHeight)) {
+    drawMedia(ctx, image, y, cropX) {
+        const mediaSize = this.getMediaSize(image === null || image === void 0 ? void 0 : image.img);
+        if (!mediaSize) {
             return;
         }
         let [nodeWidth, nodeHeight] = this.node.size;
-        const imageAspect = (image === null || image === void 0 ? void 0 : image.img.naturalWidth) / (image === null || image === void 0 ? void 0 : image.img.naturalHeight);
+        const imageAspect = mediaSize.width / mediaSize.height;
         let height = nodeHeight - y;
         const widgetAspect = nodeWidth / height;
         let targetWidth, targetHeight;
@@ -363,11 +409,11 @@ class MxdImageComparerWidget extends MxdBaseWidget {
             targetWidth = height * imageAspect;
             offsetX = (nodeWidth - targetWidth) / 2;
         }
-        const widthMultiplier = (image === null || image === void 0 ? void 0 : image.img.naturalWidth) / targetWidth;
+        const widthMultiplier = mediaSize.width / targetWidth;
         const sourceX = 0;
         const sourceY = 0;
-        const sourceWidth = cropX != null ? (cropX - offsetX) * widthMultiplier : image === null || image === void 0 ? void 0 : image.img.naturalWidth;
-        const sourceHeight = image === null || image === void 0 ? void 0 : image.img.naturalHeight;
+        const sourceWidth = cropX != null ? (cropX - offsetX) * widthMultiplier : mediaSize.width;
+        const sourceHeight = mediaSize.height;
         const destX = (nodeWidth - targetWidth) / 2;
         const destY = y + (height - targetHeight) / 2;
         const destWidth = cropX != null ? cropX - offsetX : targetWidth;
@@ -427,7 +473,8 @@ class MxdImageComparer extends MxdBaseServerNode {
                     return {
                         name: i === 0 ? "A" : "B",
                         selected: true,
-                        url: imageDataToUrl(d),
+                        mediaType: "image",
+                        url: mediaDataToUrl(d, "image"),
                     };
                 }),
             };
@@ -435,20 +482,41 @@ class MxdImageComparer extends MxdBaseServerNode {
         else {
             output.a_images = output.a_images || [];
             output.b_images = output.b_images || [];
+            output.a_videos = output.a_videos || [];
+            output.b_videos = output.b_videos || [];
             const imagesToChoose = [];
-            const multiple = output.a_images.length + output.b_images.length > 2;
+            const total = output.a_images.length + output.b_images.length + output.a_videos.length + output.b_videos.length;
+            const multiple = total > 2;
             for (const [i, d] of output.a_images.entries()) {
                 imagesToChoose.push({
                     name: output.a_images.length > 1 || multiple ? `A${i + 1}` : "A",
                     selected: i === 0,
-                    url: imageDataToUrl(d),
+                    mediaType: "image",
+                    url: mediaDataToUrl(d, "image"),
                 });
             }
             for (const [i, d] of output.b_images.entries()) {
                 imagesToChoose.push({
                     name: output.b_images.length > 1 || multiple ? `B${i + 1}` : "B",
                     selected: i === 0,
-                    url: imageDataToUrl(d),
+                    mediaType: "image",
+                    url: mediaDataToUrl(d, "image"),
+                });
+            }
+            for (const [i, d] of output.a_videos.entries()) {
+                imagesToChoose.push({
+                    name: output.a_videos.length > 1 || multiple ? `A${i + 1}` : "A",
+                    selected: i === 0 && output.a_images.length === 0,
+                    mediaType: "video",
+                    url: mediaDataToUrl(d, "video"),
+                });
+            }
+            for (const [i, d] of output.b_videos.entries()) {
+                imagesToChoose.push({
+                    name: output.b_videos.length > 1 || multiple ? `B${i + 1}` : "B",
+                    selected: i === 0 && output.b_images.length === 0,
+                    mediaType: "video",
+                    url: mediaDataToUrl(d, "video"),
                 });
             }
             this.canvasWidget.value = { images: imagesToChoose };
@@ -505,7 +573,7 @@ class MxdImageComparer extends MxdBaseServerNode {
     getHelp() {
         return `
       <p>
-        The Image Comparer node compares two images on top of each other.
+        The MXD comparer node overlays two media inputs (image or video) for quick A/B checks.
       </p>
       <ul>
         <li>
@@ -514,9 +582,7 @@ class MxdImageComparer extends MxdBaseServerNode {
           </p>
           <ul>
             <li><p>
-              The right-click menu may show image options (Open Image, Save Image, etc.) which will
-              correspond to the first image (image_a) if clicked on the left-half of the node, or
-              the second image if on the right half of the node.
+              In Slide mode, hover the node to reveal media B. In Click mode, press and hold to toggle A/B.
             </p></li>
           </ul>
         </li>
