@@ -1,0 +1,23 @@
+﻿@import "./mxd_dialog.css";
+@import "./mxd_buttons.css";
+@import "./mxd_menu.css";
+
+.mxd-top-messages-container {
+  position: fixed;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100000;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mxd-top-message {
+  background: rgba(20, 20, 20, 0.92);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+}

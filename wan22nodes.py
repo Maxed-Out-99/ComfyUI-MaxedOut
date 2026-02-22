@@ -1775,7 +1775,7 @@ if HAVE_COMFY_API:
         def define_schema(cls):
             return io.Schema(
                 node_id="Wan22FirstLastImageToVideoMXD",
-                display_name="WAN 2.2 First&Last Image To Video MXD",
+                display_name="WAN 2.2 First & Last I2V MXD",
                 category="conditioning/video_models",
                 inputs=[
                     io.Conditioning.Input("positive"),

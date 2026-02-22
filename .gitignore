@@ -30,6 +30,7 @@ logs/
 
 # Local testing workspace
 testing/
+userdata/
 
 # ComfyUI local cache & configs
 ComfyUI/output/

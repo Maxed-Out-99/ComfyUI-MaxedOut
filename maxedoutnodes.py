@@ -221,24 +221,33 @@ class ZImageTurboEmptyLatentImage:
     TITLE = "Z-Image Turbo Empty Latent Image"
     CATEGORY = "MXD/Latent"
 
-    # Same resolutions as your original, just grouped like Flux
+    # Tuned for Z-Image Turbo:
+    # - Rule of 64: every dimension is a multiple of 64
+    # - 1MP baseline: 1024x1024 in the standard tier
+    # - Ceiling: keep presets below 6.5MP
+    MAX_TOTAL_PIXELS = 6_500_000
+    MIN_BLOCK = 64
     RESOLUTIONS = {
         "— High Resolutions —": None,
         "Square (1:1) 1536x1536": (1536, 1536),
-        "Square (1:1) 1280x1280": (1280, 1280),
+        "Photo (4:3) 1792x1344": (1792, 1344),
+        "Landscape (3:2) 1920x1280": (1920, 1280),
         "Widescreen (16:9) 2048x1152": (2048, 1152),
-        "Ultrawide (21:9) 2016x864": (2016, 864),
+        "Ultrawide (21:9) 2304x1024": (2304, 1024),
 
         "— Standard Resolutions —": None,
         "Square (1:1) 1024x1024": (1024, 1024),
-        "Standard (3:2) 1536x1024": (1536, 1024),
-        "Widescreen (16:9) 1920x1088": (1920, 1088),
-        "Ultrawide (21:9) 1680x720": (1680, 720),
+        "Photo (4:3) 1152x896": (1152, 896),
+        "Landscape (3:2) 1280x832": (1280, 832),
+        "Widescreen (16:9) 1344x768": (1344, 768),
+        "Ultrawide (21:9) 1536x640": (1536, 640),
 
         "— Low Resolutions —": None,
-        "Square (1:1) 768x768": (768, 768),
-        "Standard (3:2) 1216x832": (1216, 832),
-        "Widescreen (16:9) 1280x720": (1280, 720),
+        "Square (1:1) 512x512": (512, 512),
+        "Photo (4:3) 576x448": (576, 448),
+        "Landscape (3:2) 640x448": (640, 448),
+        "Widescreen (16:9) 704x384": (704, 384),
+        "Ultrawide (21:9) 768x320": (768, 320),
     }
 
     def __init__(self):
@@ -275,6 +284,15 @@ class ZImageTurboEmptyLatentImage:
         width, height = size
         if vertical:
             width, height = height, width
+
+        if (width % self.MIN_BLOCK) != 0 or (height % self.MIN_BLOCK) != 0:
+            raise ValueError(
+                f"Invalid preset {width}x{height}. Z-Image Turbo requires multiples of {self.MIN_BLOCK}."
+            )
+        if (width * height) > self.MAX_TOTAL_PIXELS:
+            raise ValueError(
+                f"Invalid preset {width}x{height}. Z-Image Turbo presets must stay at or below {self.MAX_TOTAL_PIXELS:,} pixels."
+            )
 
         latent = torch.zeros([batch_size, 16, height // 8, width // 8], device=self.device)
         return ({"samples": latent},)
@@ -1377,32 +1395,8 @@ class SaveImage_MXD:
             # Strip UI previews so nothing shows up in the ComfyUI viewer.
             return {k: v for k, v in result.items() if k != "ui"}
         return result
-
-
+    
 ########################################################################################################################
-# Dummy Node (for workflow missing-node testing)
-class DummyNodeMXD:
-    DESCRIPTION = """Basic dummy node for missing-node workflow tests."""
-    TITLE = "Dummy Node"
-    CATEGORY = "MXD/Test"
-
-    @classmethod
-    def INPUT_TYPES(cls) -> dict:
-        return {
-            "required": {
-                "text": ("STRING", {"default": "hello"}),
-                "repeat": ("INT", {"default": 1, "min": 1, "max": 10}),
-            }
-        }
-
-    RETURN_TYPES = ("STRING",)
-    OUTPUT_TOOLTIPS = ("The input text repeated N times.",)
-    FUNCTION = "run"
-
-    def run(self, text, repeat) -> tuple:
-        return (text * int(repeat),)
-
-
 
 # NODE MAPPING
 NODE_CLASS_MAPPINGS = {
@@ -1424,7 +1418,6 @@ NODE_CLASS_MAPPINGS = {
     "LoadImageWithPromptsMXD": LoadImageWithPromptsMXD,
     "ZImageTurboEmptyLatentImage": ZImageTurboEmptyLatentImage,
     "Save Image MXD": SaveImage_MXD,
-    "Dummy Node MXD": DummyNodeMXD,
 }
 
 if HAVE_COMFY_API:
@@ -1450,9 +1443,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Crop Image By Mask": "Crop Image by Mask MXD",
     "Load Image Batch MXD": "Load Image Batch MXD",
     "LoadImageWithPromptsMXD": "Load Image MXD",
-    "ZImageTurboEmptyLatentImage": "ZImageTurbo Empty Latent Image MXD",
+    "ZImageTurboEmptyLatentImage": "ZIT Empty Latent Image MXD",
     "Save Image MXD": "Save Image MXD",
-    "Dummy Node MXD": "Dummy Node MXD",
 }
 
 if HAVE_COMFY_API:
@@ -1460,20 +1452,3 @@ if HAVE_COMFY_API:
         "QwenImageEditSingleMXD": "Qwen Image Edit + Latent MXD",
         "QwenImageEditTripleMXD": "Qwen Image Edit Prompt MXD (Triple)",
     })
-
-def _add_mxd_aliases(class_map, display_map):
-    alias_sources = {}
-    for key in list(class_map.keys()):
-        if "MXD" in key.upper():
-            continue
-        alias = f"{key} MXD"
-        if alias in class_map:
-            continue
-        class_map[alias] = class_map[key]
-        alias_sources[alias] = key
-    for alias, source in alias_sources.items():
-        if alias not in display_map:
-            display_map[alias] = display_map.get(source, alias)
-    return alias_sources
-
-_add_mxd_aliases(NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS)

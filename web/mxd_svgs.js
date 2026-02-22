@@ -1,0 +1,5 @@
+﻿export const logoCivitai = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="#40a3ff"></circle><path d="M8 7h8l-4 10z" fill="#fff"></path></svg>`;
+export const link = `<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M14 3h7v7h-2V6.4l-9.3 9.3-1.4-1.4L17.6 5H14V3z" fill="currentColor"></path><path d="M5 5h6v2H7v10h10v-4h2v6H5V5z" fill="currentColor"></path></svg>`;
+export const pencilColored = `<svg viewBox="0 0 24 24" width="16" height="16"><path fill="#f59e0b" d="M3 17.2V21h3.8l11-11-3.8-3.8-11 11z"></path><path fill="#d97706" d="M20.7 7.1a1 1 0 0 0 0-1.4l-2.4-2.4a1 1 0 0 0-1.4 0l-1.9 1.9 3.8 3.8 1.9-1.9z"></path></svg>`;
+export const diskColored = `<svg viewBox="0 0 24 24" width="16" height="16"><path fill="#22c55e" d="M4 4h16v16H4z"></path><path fill="#fff" d="M7 4h8v6H7zM8 14h8v4H8z"></path></svg>`;
+export const dotdotdot = `<svg viewBox="0 0 24 24" width="16" height="16"><circle cx="6" cy="12" r="2" fill="currentColor"></circle><circle cx="12" cy="12" r="2" fill="currentColor"></circle><circle cx="18" cy="12" r="2" fill="currentColor"></circle></svg>`;
