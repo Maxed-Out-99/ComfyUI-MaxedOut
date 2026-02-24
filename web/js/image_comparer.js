@@ -9,6 +9,7 @@ const NODE_TYPE_STRINGS = new Set([
     "Video Comparer MXD",
     "VideoComparerMXD",
 ]);
+const NODE_OVERRIDE_CLASSES = new Map();
 
 // --- Canvas Utilities (Inline) ---
 function measureText(ctx, str) {
@@ -589,7 +590,14 @@ class MxdImageComparer extends MxdBaseServerNode {
       </ul>`;
     }
     static setUp(comfyClass, nodeData) {
-        MxdBaseServerNode.registerForOverride(comfyClass, nodeData, MxdImageComparer);
+        let boundClass = NODE_OVERRIDE_CLASSES.get(nodeData.name);
+        if (!boundClass) {
+            // Each comparer node needs its own class so static nodeData does not get overwritten.
+            boundClass = class extends MxdImageComparer {};
+            NODE_OVERRIDE_CLASSES.set(nodeData.name, boundClass);
+        }
+        boundClass.nodeData = nodeData;
+        MxdBaseServerNode.registerForOverride(comfyClass, nodeData, boundClass);
     }
     static onRegisteredForOverride(comfyClass) {
         addConnectionLayoutSupport(MxdImageComparer, app, [
