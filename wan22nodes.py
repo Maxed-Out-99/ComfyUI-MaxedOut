@@ -1251,6 +1251,48 @@ def _resize_fit_inside(img, out_w, out_h):
     resized = comfy.utils.common_upscale(img.movedim(-1, 1), tw, th, "bilinear", "center").movedim(1, -1)
     return resized, tw, th
 
+def _validate_image_batch_4d(image, node_name, input_name):
+    if image is None:
+        raise ValueError(f"[{node_name}] '{input_name}' is required.")
+    if not torch.is_tensor(image):
+        raise TypeError(f"[{node_name}] '{input_name}' must be an IMAGE torch tensor, got {type(image).__name__}.")
+    if image.ndim != 4:
+        raise ValueError(f"[{node_name}] '{input_name}' must have shape [T,H,W,C], got {tuple(image.shape)}.")
+    if image.shape[0] <= 0:
+        raise ValueError(f"[{node_name}] '{input_name}' contains zero images/frames.")
+    if image.shape[1] <= 0 or image.shape[2] <= 0 or image.shape[3] <= 0:
+        raise ValueError(f"[{node_name}] '{input_name}' has invalid dimensions {tuple(image.shape)}.")
+    return image
+
+def _resize_to_explicit_resolution(img, out_w, out_h, match_mode="crop_to_match"):
+    """
+    Resize IMAGE batch to an explicit resolution.
+    - crop_to_match: cover + center crop (exact output)
+    - fit_inside_only: preserve AR, no crop (may be smaller)
+    - stretch_exact: force exact output (distorts AR)
+    """
+    out_w = int(out_w)
+    out_h = int(out_h)
+    if out_w <= 0 or out_h <= 0:
+        raise ValueError(f"Invalid target resolution {out_w}x{out_h}.")
+
+    if match_mode == "crop_to_match":
+        return _resize_then_center_crop(img, out_w, out_h)
+
+    if match_mode == "fit_inside_only":
+        _, ih, iw, _ = img.shape
+        s = min(out_w / max(1, iw), out_h / max(1, ih))
+        tw = max(1, min(out_w, int(iw * s)))
+        th = max(1, min(out_h, int(ih * s)))
+        return comfy.utils.common_upscale(img.movedim(-1, 1), tw, th, "bilinear", "center").movedim(1, -1)
+
+    if match_mode == "stretch_exact":
+        return comfy.utils.common_upscale(img.movedim(-1, 1), out_w, out_h, "bilinear", "center").movedim(1, -1)
+
+    raise ValueError(
+        f"Invalid match_mode '{match_mode}'. Expected one of: crop_to_match, fit_inside_only, stretch_exact."
+    )
+
 # ---------- WAN22_I2V_Image_Scaler_MXD ----------
 # Adds a new “Safe Auto” mode for video extend workflows.
 # Normal modes (Auto / 480p / 720p) behave exactly as before.
@@ -1344,6 +1386,45 @@ def _wan22_scale_image_core(image, tier="Auto", crop_to_fit=False):
     return out, int(out.shape[2]), int(out.shape[1]), False
 
 
+def _resample_video_frames_to_fps(frames, in_fps, out_fps):
+    """
+    Resample a frame sequence to a target FPS using nearest-frame selection.
+    Preserves clip duration approximately by dropping/duplicating frames,
+    instead of only changing FPS metadata (which changes playback speed).
+    Returns (frames_out, fps_out, changed).
+    """
+    if frames is None or frames.ndim != 4:
+        raise ValueError("Expected frame tensor with shape [T,H,W,C].")
+
+    if in_fps is None:
+        raise ValueError("Input video FPS is missing; cannot force FPS safely.")
+
+    in_fps = float(in_fps)
+    out_fps = float(out_fps)
+    if in_fps <= 0:
+        raise ValueError(f"Invalid input FPS: {in_fps}")
+    if out_fps <= 0:
+        raise ValueError(f"Invalid target FPS: {out_fps}")
+
+    if frames.shape[0] <= 1:
+        return frames, float(out_fps), False
+
+    if abs(in_fps - out_fps) < 1e-6:
+        return frames, float(out_fps), False
+
+    n_in = int(frames.shape[0])
+    # Match the first/last frame span, then pick nearest frames on that timeline.
+    n_out = max(1, int(round(((n_in - 1) * out_fps) / in_fps)) + 1)
+    if n_out == n_in:
+        # Frame count may stay the same for near-equal FPS; metadata still becomes exact.
+        return frames, float(out_fps), False
+
+    idx = torch.linspace(0, n_in - 1, steps=n_out, device=frames.device)
+    idx = idx.round().to(dtype=torch.long)
+    out = frames.index_select(0, idx)
+    return out, float(out_fps), True
+
+
 def _select_frames_start_end(frames, count=1, offset=1, mode="end"):
     total = int(frames.shape[0])
     if total <= 0:
@@ -1370,7 +1451,7 @@ def _select_frames_start_end(frames, count=1, offset=1, mode="end"):
 class WAN22_I2V_Image_Scaler_MXD:
     """
     MXD Image Scaler for WAN 2.2 (NO PADDING)
-    - Modes: Auto / 480p / 720p / Safe Auto
+    - Modes: Auto / 480p / 720p (legacy "Safe Auto" still accepted)
     - Fit (no pad): proportional resize ≤ target; returns resized dims.
     - Crop (no pad): resize-to-cover then center-crop to exact target.
     - Square handling:
@@ -1393,7 +1474,7 @@ class WAN22_I2V_Image_Scaler_MXD:
         return {
             "required": {
                 "image": ("IMAGE",),
-                "tier": (["Auto", "480p", "720p", "Safe Auto"], {"default": "Auto"}),
+                "tier": (["Auto", "480p", "720p"], {"default": "Auto"}),
                 "crop_to_fit": ("BOOLEAN", {
                     "default": True,
                     "label_on": "Perfect Fit (Crops Edges)",
@@ -1439,7 +1520,9 @@ class WAN22_I2V_Image_Scaler_MXD:
     # Main function
     # -----------------------------
     def scale(self, image, tier="Auto", crop_to_fit=False):
-        out, _, _, _ = _wan22_scale_image_core(image, tier=tier, crop_to_fit=crop_to_fit)
+        # Keep legacy "Safe Auto" values from old workflows working, but expose only one Auto in UI.
+        internal_tier = "Safe Auto" if tier == "Auto" else tier
+        out, _, _, _ = _wan22_scale_image_core(image, tier=internal_tier, crop_to_fit=crop_to_fit)
         return (out,)
 
         _, ih, iw, _ = image.shape
@@ -1483,6 +1566,67 @@ class WAN22_I2V_Image_Scaler_MXD:
             out, _, _ = _resize_fit_inside(image, bw, bh)
 
         return (out,)
+
+class WAN22_I2V_Match_Resolution_MXD:
+    """
+    Match a second image (or image batch) to a reference image resolution for WAN 2.2
+    first/last-frame workflows.
+    """
+    TITLE = "WAN 2.2 I2V Match Resolution"
+    CATEGORY = "image/processing"
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("matched_image",)
+    FUNCTION = "match_resolution"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "reference_image": ("IMAGE", {
+                    "tooltip": "Reference size source (usually the first image after WAN bucket scaling)."
+                }),
+                "image_to_match": ("IMAGE", {
+                    "tooltip": "Image or batch to resize using the reference image resolution."
+                }),
+                "match_mode": (["crop_to_match", "fit_inside_only", "stretch_exact"], {
+                    "default": "crop_to_match",
+                    "tooltip": "crop_to_match = exact size via cover+center crop; fit_inside_only = no crop, may be smaller; stretch_exact = exact size with distortion."
+                }),
+                "enforce_wan_bucket": ("BOOLEAN", {
+                    "default": False,
+                    "label_on": "Validate WAN Bucket",
+                    "label_off": "No WAN Validation",
+                    "tooltip": "If enabled, reference_image must already be a WAN 2.2 bucket size."
+                }),
+            }
+        }
+
+    def match_resolution(self, reference_image, image_to_match, match_mode="crop_to_match", enforce_wan_bucket=False):
+        node_name = "WAN22_I2V_Match_Resolution_MXD"
+        reference_image = _validate_image_batch_4d(reference_image, node_name, "reference_image")
+        image_to_match = _validate_image_batch_4d(image_to_match, node_name, "image_to_match")
+
+        _, ref_h, ref_w, _ = reference_image.shape
+
+        if enforce_wan_bucket and not _wan22_is_valid_dim(ref_w, ref_h):
+            raise ValueError(
+                f"[{node_name}] Reference image resolution {ref_w}x{ref_h} is not a valid WAN 2.2 bucket.\n"
+                "Valid WAN 2.2 buckets are:\n"
+                "  - 832x480 / 480x832\n"
+                "  - 1280x720 / 720x1280\n"
+                "  - 624x624 / 720x720\n\n"
+                "Recommended workflow:\n"
+                "  1. Scale the first image with 'Image Scaler Wan 2.2 I2V MXD'\n"
+                "  2. Use this node to match the second image to the scaled first image"
+            )
+
+        matched = _resize_to_explicit_resolution(
+            image_to_match,
+            out_w=ref_w,
+            out_h=ref_h,
+            match_mode=match_mode,
+        )
+        return (matched,)
     
 # ---------- MXD Frames Select Start/End (from start or end of sequence) ----------
 class Frames_Select_StartEnd_MXD:
@@ -1719,16 +1863,27 @@ if HAVE_COMFY_API:
             return {
                 "required": {
                     "video": ("VIDEO",),
-                    "tier": (["Auto", "480p", "720p", "Safe Auto"], {"default": "Auto"}),
+                    "tier": (["Auto", "480p", "720p"], {"default": "Auto"}),
                     "crop_to_fit": ("BOOLEAN", {
                         "default": True,
                         "label_on": "Perfect Fit (Crops Edges)",
                         "label_off": "Closest Fit (No Crop)"
                     }),
+                    "fps_mode": (["none", "force"], {
+                        "default": "none",
+                        "tooltip": "none = keep source fps. force = resample frames (drop/duplicate) and set exact target fps."
+                    }),
+                    "target_fps": ("FLOAT", {
+                        "default": 16.0,
+                        "min": 0.001,
+                        "max": 1000.0,
+                        "step": 0.01,
+                        "tooltip": "Used when fps_mode=force. Output video fps will be set exactly to this value."
+                    }),
                 },
             }
 
-        def prepare(self, video, tier="Auto", crop_to_fit=True):
+        def prepare(self, video, tier="Auto", crop_to_fit=True, fps_mode="none", target_fps=16.0):
             comp = video.get_components()
             if isinstance(comp.images, list):
                 if len(comp.images) == 0:
@@ -1746,8 +1901,17 @@ if HAVE_COMFY_API:
             if frames.shape[0] <= 0:
                 raise ValueError("[WAN22_I2V_Video_Prep_MXD] Input video has zero frames.")
 
+            out_frame_rate = float(comp.frame_rate) if comp.frame_rate is not None else None
+            if fps_mode == "force":
+                frames, out_frame_rate, _ = _resample_video_frames_to_fps(
+                    frames, comp.frame_rate, target_fps
+                )
+
+            # "Auto" in video prep uses the safer extend-friendly behavior.
+            # Keep accepting legacy "Safe Auto" values from older saved workflows.
+            internal_tier = "Safe Auto" if tier == "Auto" else tier
             scaled_frames, out_w, out_h, _ = _wan22_scale_image_core(
-                frames, tier=tier, crop_to_fit=crop_to_fit
+                frames, tier=internal_tier, crop_to_fit=crop_to_fit
             )
 
             start_image = scaled_frames[0:1].clone()
@@ -1757,11 +1921,11 @@ if HAVE_COMFY_API:
                 VideoComponents(
                     images=scaled_frames,
                     audio=comp.audio,
-                    frame_rate=comp.frame_rate,
+                    frame_rate=out_frame_rate,
                 )
             )
 
-            fps = float(comp.frame_rate) if comp.frame_rate is not None else 0.0
+            fps = float(out_frame_rate) if out_frame_rate is not None else 0.0
             return (scaled_video, start_image, end_image, out_w, out_h, fps)
 
     class WAN22_I2V_Video_Prep_Advanced_MXD:
@@ -1778,11 +1942,22 @@ if HAVE_COMFY_API:
             return {
                 "required": {
                     "video": ("VIDEO",),
-                    "tier": (["Auto", "480p", "720p", "Safe Auto"], {"default": "Auto"}),
+                    "tier": (["Auto", "480p", "720p"], {"default": "Auto"}),
                     "crop_to_fit": ("BOOLEAN", {
                         "default": True,
                         "label_on": "Perfect Fit (Crops Edges)",
                         "label_off": "Closest Fit (No Crop)"
+                    }),
+                    "fps_mode": (["none", "force"], {
+                        "default": "none",
+                        "tooltip": "none = keep source fps. force = resample frames (drop/duplicate) and set exact target fps."
+                    }),
+                    "target_fps": ("FLOAT", {
+                        "default": 16.0,
+                        "min": 0.001,
+                        "max": 1000.0,
+                        "step": 0.01,
+                        "tooltip": "Used when fps_mode=force. Output video fps will be set exactly to this value."
                     }),
                     "mode": (["start", "end"], {"default": "end"}),
                     "count": ("INT", {"default": 1, "min": 1, "max": 10000}),
@@ -1790,7 +1965,7 @@ if HAVE_COMFY_API:
                 },
             }
 
-        def prepare(self, video, tier="Auto", crop_to_fit=True, mode="end", count=1, offset=1):
+        def prepare(self, video, tier="Auto", crop_to_fit=True, fps_mode="none", target_fps=16.0, mode="end", count=1, offset=1):
             comp = video.get_components()
             if isinstance(comp.images, list):
                 if len(comp.images) == 0:
@@ -1808,8 +1983,17 @@ if HAVE_COMFY_API:
             if frames.shape[0] <= 0:
                 raise ValueError("[WAN22_I2V_Video_Prep_Advanced_MXD] Input video has zero frames.")
 
+            out_frame_rate = float(comp.frame_rate) if comp.frame_rate is not None else None
+            if fps_mode == "force":
+                frames, out_frame_rate, _ = _resample_video_frames_to_fps(
+                    frames, comp.frame_rate, target_fps
+                )
+
+            # "Auto" in video prep uses the safer extend-friendly behavior.
+            # Keep accepting legacy "Safe Auto" values from older saved workflows.
+            internal_tier = "Safe Auto" if tier == "Auto" else tier
             scaled_frames, out_w, out_h, _ = _wan22_scale_image_core(
-                frames, tier=tier, crop_to_fit=crop_to_fit
+                frames, tier=internal_tier, crop_to_fit=crop_to_fit
             )
 
             selected_frames = _select_frames_start_end(
@@ -1822,11 +2006,11 @@ if HAVE_COMFY_API:
                 VideoComponents(
                     images=scaled_frames,
                     audio=comp.audio,
-                    frame_rate=comp.frame_rate,
+                    frame_rate=out_frame_rate,
                 )
             )
 
-            fps = float(comp.frame_rate) if comp.frame_rate is not None else 0.0
+            fps = float(out_frame_rate) if out_frame_rate is not None else 0.0
             return (scaled_video, selected_frames, start_image, end_image, out_w, out_h, fps)
     
     # ---------- Load Video MXD (video-only picker with refresh) ----------
@@ -2153,6 +2337,7 @@ NODE_CLASS_MAPPINGS = {
     "LoadLatent_I2V_MXD": LoadLatent_I2V_MXD,
     "LoadLatents_FromFolder_I2V_MXD": LoadLatents_FromFolder_I2V_MXD,
     "WAN22_I2V_Image_Scaler_MXD": WAN22_I2V_Image_Scaler_MXD,
+    "WAN22_I2V_Match_Resolution_MXD": WAN22_I2V_Match_Resolution_MXD,
     "Frames_Remove_From_Start_MXD": Frames_Remove_From_Start_MXD,
     "GroupVideoFramesMXD": GroupVideoFramesMXD,
     "Frames_Select_StartEnd_MXD": Frames_Select_StartEnd_MXD,
@@ -2180,6 +2365,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadLatent_I2V_MXD": "Load Latent I2V MXD",
     "LoadLatents_FromFolder_I2V_MXD": "Load Latent Batch I2V MXD",
     "WAN22_I2V_Image_Scaler_MXD": "Image Scaler Wan 2.2 I2V MXD",
+    "WAN22_I2V_Match_Resolution_MXD": "Match Resolution Wan 2.2 I2V MXD",
     "Frames_Remove_From_Start_MXD": "Remove Frames From Start MXD",
     "GroupVideoFramesMXD": "Group Video Frames MXD",
     "Frames_Select_StartEnd_MXD": "Select Frames MXD",

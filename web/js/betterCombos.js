@@ -1,4 +1,4 @@
-import { app } from "../../../scripts/app.js";
+﻿import { app } from "../../../scripts/app.js";
 import { ComfyWidgets } from "../../../scripts/widgets.js";
 import { $el } from "../../../scripts/ui.js";
 import { api } from "../../../scripts/api.js";
@@ -6,14 +6,15 @@ import { api } from "../../../scripts/api.js";
 const CHECKPOINT_LOADER = "CheckpointLoader|pysssss";
 const LORA_LOADER = "LoraLoader|pysssss";
 const LOAD_LATENT_WITH_PARAMS = "LoadLatent_WithParams";
+const LOAD_LATENT_WITH_PARAMS_MXD_ALIAS = "LoadLatent_WithParams MXD";
 const LOAD_LATENT_I2V_MXD = "LoadLatent_I2V_MXD";
+const ENABLE_PYSSSS_NODE_ENHANCEMENTS = false;
 const IMAGE_WIDTH = 384;
 const IMAGE_HEIGHT = 384;
 
 const NODE_CONFIGS = {
-        [CHECKPOINT_LOADER]: { type: "checkpoints", widgetName: "ckpt_name", hasImages: true },
-        [LORA_LOADER]: { type: "loras", widgetName: "lora_name", hasImages: true },
         [LOAD_LATENT_WITH_PARAMS]: { type: "latents", widgetName: "latent", hasImages: false },
+        [LOAD_LATENT_WITH_PARAMS_MXD_ALIAS]: { type: "latents", widgetName: "latent", hasImages: false },
         [LOAD_LATENT_I2V_MXD]: { type: "latents", widgetName: "latent", hasImages: false },
 };
 
@@ -94,12 +95,12 @@ for (const type of Object.keys(CONFIG_BY_TYPE)) {
 }
 
 app.registerExtension({
-        name: "pysssss.Combo++",
+        name: "mxd.Combo++",
         init() {
 		const displayOptions = { "List (normal)": 0, "Tree (subfolders)": 1, "Thumbnails (grid)": 2 };
                 const displaySetting = app.ui.settings.addSetting({
-                        id: "pysssss.Combo++.Submenu",
-                        name: "🐍 Loader display mode (Lora/Checkpoint/Latent)",
+                        id: "mxd.Combo++.Submenu",
+                        name: "Loader display mode (MXD Latent)",
 			defaultValue: 1,
 			type: "combo",
 			options: (value) => {
@@ -333,7 +334,7 @@ app.registerExtension({
 
 				const createFolderElement = (name) => {
 					const folder = $el("div.litemenu-entry.pysssss-combo-folder", {
-						innerHTML: `<span class="pysssss-combo-folder-arrow">▶</span> ${name}`,
+						innerHTML: `<span class="pysssss-combo-folder-arrow">></span> ${name}`,
 						style: { paddingLeft: "5px" },
 					});
 					return folder;
@@ -369,10 +370,10 @@ app.registerExtension({
 							const contents = folderElement.nextElementSibling;
 							if (contents.style.display === "none") {
 								contents.style.display = "block";
-								arrow.textContent = "▼";
+								arrow.textContent = "v";
 							} else {
 								contents.style.display = "none";
-								arrow.textContent = "▶";
+								arrow.textContent = ">";
 							}
 						});
 					}
@@ -440,7 +441,7 @@ app.registerExtension({
 	async beforeRegisterNodeDef(nodeType, nodeData, app) {
                 const isCkpt = nodeData.name === CHECKPOINT_LOADER;
                 const isLora = nodeData.name === LORA_LOADER;
-                if (isCkpt || isLora) {
+                if (ENABLE_PYSSSS_NODE_ENHANCEMENTS && (isCkpt || isLora)) {
                         const nodeConfig = getNodeConfig(nodeData.name) ?? getNodeConfig(nodeType);
                         const onAdded = nodeType.prototype.onAdded;
                         nodeType.prototype.onAdded = function () {
@@ -534,6 +535,9 @@ app.registerExtension({
 
 		const getExtraMenuOptions = nodeType.prototype.getExtraMenuOptions;
 		nodeType.prototype.getExtraMenuOptions = function (_, options) {
+			if (!ENABLE_PYSSSS_NODE_ENHANCEMENTS) {
+				return getExtraMenuOptions?.apply(this, arguments);
+			}
 			if (this.imgs) {
 				// If this node has images then we add an open in new tab item
 				let img;
@@ -581,3 +585,4 @@ app.registerExtension({
 		};
 	},
 });
+

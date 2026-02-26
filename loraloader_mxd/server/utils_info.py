@@ -12,9 +12,50 @@ import folder_paths
 from ..utils import abspath, get_dict_value, load_json_file, file_exists, remove_path, save_json_file
 from ..utils_userdata import read_userdata_json, save_userdata_json, delete_userdata_file
 
+LORA_INFO_DIR_NAME = "more_info"
+LORA_INFO_FILE_NAME = "lora-info.json"
+LORA_INFO_README_FILE_NAME = "README.txt"
+LORA_INFO_README_TEXT = (
+  "ComfyUI-MaxedOut (Lora Loader MXD) stores extra local LoRA info here.\n"
+  "Each subfolder matches a LoRA filename in this folder.\n"
+  "Files in these subfolders may include fetched info, metadata, and other local support files.\n"
+  "You can delete a LoRA subfolder to remove its extra info; it will be recreated if needed.\n"
+  "This README may be recreated automatically.\n"
+)
+
 
 def _get_info_cache_file(data_type: str, file_hash: str):
   return f'info/{file_hash}.{data_type}.json'
+
+
+def _uses_structured_lora_info(model_type: str | None) -> bool:
+  return model_type == "loras"
+
+
+def _get_legacy_info_file(file_path: str):
+  return f'{file_path}.rgthree-info.json'
+
+
+def _get_lora_more_info_dir(file_path: str):
+  return os.path.join(os.path.dirname(file_path), LORA_INFO_DIR_NAME)
+
+
+def _get_lora_model_info_dir(file_path: str):
+  return os.path.join(_get_lora_more_info_dir(file_path), os.path.basename(file_path))
+
+
+def _get_lora_info_file(file_path: str):
+  return os.path.join(_get_lora_model_info_dir(file_path), LORA_INFO_FILE_NAME)
+
+
+def _ensure_lora_info_readme(file_path: str):
+  more_info_dir = _get_lora_more_info_dir(file_path)
+  readme_path = os.path.join(more_info_dir, LORA_INFO_README_FILE_NAME)
+  if file_exists(readme_path):
+    return
+  os.makedirs(more_info_dir, exist_ok=True)
+  with open(readme_path, 'w', encoding='UTF-8') as file:
+    file.write(LORA_INFO_README_TEXT)
 
 
 async def delete_model_info(
@@ -25,7 +66,11 @@ async def delete_model_info(
   if file_path is None:
     return
   if del_info:
-    remove_path(get_info_file(file_path))
+    if _uses_structured_lora_info(model_type):
+      remove_path(_get_lora_info_file(file_path))
+      remove_path(_get_legacy_info_file(file_path))
+    else:
+      remove_path(get_info_file(file_path, model_type=model_type))
   if del_civitai or del_metadata:
     file_hash = _get_sha256_hash(file_path)
     if del_civitai:
@@ -46,13 +91,20 @@ def get_file_info(file: str, model_type):
     'path': file_path,
     'modified': os.path.getmtime(file_path) * 1000,  # millis
     'imageLocal': f'/loraloader-mxd/api/{model_type}/img?file={file}' if get_img_file(file_path) else None,
-    'hasInfoFile': get_info_file(file_path) is not None,
+    'hasInfoFile': get_info_file(file_path, model_type=model_type) is not None,
   }
 
 
-def get_info_file(file_path: str, force=False):
-  # Try to load a rgthree-info.json file next to the file.
-  info_path = f'{file_path}.rgthree-info.json'
+def get_info_file(file_path: str, force=False, model_type: str | None = None):
+  """Returns the local info file path, with LoRA structured storage and legacy fallback."""
+  if _uses_structured_lora_info(model_type):
+    info_path = _get_lora_info_file(file_path)
+    if file_exists(info_path) or force:
+      return info_path
+    legacy_info_path = _get_legacy_info_file(file_path)
+    return legacy_info_path if file_exists(legacy_info_path) else None
+
+  info_path = _get_legacy_info_file(file_path)
   return info_path if file_exists(info_path) or force else None
 
 
@@ -68,7 +120,7 @@ def get_model_info_file_data(file: str, model_type, default=None):
   file_path = get_folder_path(file, model_type)
   if file_path is None:
     return default
-  return load_json_file(get_info_file(file_path), default=default)
+  return load_json_file(get_info_file(file_path, model_type=model_type), default=default)
 
 
 async def get_model_info(
@@ -90,7 +142,7 @@ async def get_model_info(
   should_save = False
   # basic data
   basic_data = get_file_info(file, model_type)
-  # Try to load a rgthree-info.json file next to the file.
+  # Try to load local model info data (LoRAs support structured storage with legacy fallback).
   info_data = get_model_info_file_data(file, model_type, default={})
 
   for key in ['file', 'path', 'modified', 'imageLocal', 'hasInfoFile']:
@@ -444,10 +496,12 @@ async def set_model_info_partial(file: str, model_type: str, info_data_partial):
 
 
 def save_model_info(file: str, info_data, model_type):
-  """Saves the model info alongside the model itself."""
+  """Saves the model info using the configured local storage layout for the model type."""
   file_path = get_folder_path(file, model_type)
   if file_path is None:
     return
-  info_path = get_info_file(file_path, force=True)
+  if _uses_structured_lora_info(model_type):
+    _ensure_lora_info_readme(file_path)
+  info_path = get_info_file(file_path, force=True, model_type=model_type)
   save_json_file(info_path, info_data)
 

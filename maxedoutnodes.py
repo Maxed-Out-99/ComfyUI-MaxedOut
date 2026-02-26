@@ -1398,6 +1398,68 @@ class SaveImage_MXD:
     
 ########################################################################################################################
 
+class SmartCropByMaskMXD:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE", ),
+                "mask": ("MASK", ),           
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE", )
+    RETURN_NAMES = ("image", )
+    FUNCTION = "crop"
+    CATEGORY = "image/transform"
+    DESCRIPTION = "Slides a square crop window horizontally + vertically to center on subject mask."
+
+    def crop(self, image, mask):
+        B, H, W, C = image.shape
+        mask = mask.round()
+        crops = []
+
+        for b in range(B):
+            mask_b = mask[min(b, mask.shape[0]-1)]
+
+            # Get non-zero rows and columns
+            rows = torch.any(mask_b > 0, dim=1)
+            cols = torch.any(mask_b > 0, dim=0)
+
+            # Default to center
+            center_x = W // 2
+            center_y = H // 2
+
+            # Update center_x from mask if possible
+            if torch.any(cols):
+                x_min, x_max = torch.where(cols)[0][[0, -1]]
+                center_x = (x_min + x_max) // 2
+
+            # Update center_y from mask if possible
+            if torch.any(rows):
+                y_min, y_max = torch.where(rows)[0][[0, -1]]
+                center_y = (y_min + y_max) // 2
+
+            # Compute square crop box
+            side = min(H, W)
+            half = side // 2
+
+            left = max(0, center_x - half)
+            right = min(W, left + side)
+            left = right - side  # clamp again
+
+            top = max(0, center_y - half)
+            bottom = min(H, top + side)
+            top = bottom - side  # clamp again
+
+            # Final crop: safe slicing
+            crop = image[b:b+1, top:bottom, left:right, :]
+            crops.append(crop)
+
+        return (torch.cat(crops, dim=0), )
+
+########################################################################################################################
+
 # NODE MAPPING
 NODE_CLASS_MAPPINGS = {
     "Flux Empty Latent Image": FluxEmptyLatentImage,
@@ -1418,7 +1480,8 @@ NODE_CLASS_MAPPINGS = {
     "LoadImageWithPromptsMXD": LoadImageWithPromptsMXD,
     "ZImageTurboEmptyLatentImage": ZImageTurboEmptyLatentImage,
     "Save Image MXD": SaveImage_MXD,
-}
+    "SmartCropByMaskMXD": SmartCropByMaskMXD,
+    }
 
 if HAVE_COMFY_API:
     NODE_CLASS_MAPPINGS.update({
@@ -1441,10 +1504,11 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Get Latent Size": "Get Latent Size MXD",
     "Place Image By Mask": "Place Image by Mask MXD",
     "Crop Image By Mask": "Crop Image by Mask MXD",
-    "Load Image Batch MXD": "Load Image Batch MXD",
+    "Load Image Batch MXD": "Load Image Batch (From Outputs) MXD",
     "LoadImageWithPromptsMXD": "Load Image MXD",
     "ZImageTurboEmptyLatentImage": "ZIT Empty Latent Image MXD",
     "Save Image MXD": "Save Image MXD",
+    "SmartCropByMaskMXD": "Smart Crop by Mask MXD",
 }
 
 if HAVE_COMFY_API:
