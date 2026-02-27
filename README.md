@@ -49,13 +49,13 @@ Restart ComfyUI after install.
 
 ## Free Workflows
 
-Free workflow releases are posted on Patreon.
+Free workflow releases are posted on Patreon (no sign up needed).
 
-- SDXL v1.5 (Free): [Open workflow](https://www.patreon.com/posts/free-sdxl-v1-5-129782694?utm_medium=clipboard_copy&utm_source=copyLink&utm_campaign=postshare_creator&utm_content=join_link)
+- [SDXL v1.5 Here](https://www.patreon.com/posts/free-sdxl-v1-5-129782694?utm_medium=clipboard_copy&utm_source=copyLink&utm_campaign=postshare_creator&utm_content=join_link)
 
 ![SDXL v1.5 Free Workflow](assets/sdxlfree.png)
 
-- Flux v1.5 (Free): [Open workflow](https://www.patreon.com/posts/free-flux-just-131945103?utm_medium=clipboard_copy&utm_source=copyLink&utm_campaign=postshare_creator&utm_content=join_link)
+- [Flux v1.5 Here](https://www.patreon.com/posts/free-flux-just-131945103?utm_medium=clipboard_copy&utm_source=copyLink&utm_campaign=postshare_creator&utm_content=join_link)
 
 ![Flux v1.5 Free Workflow](assets/fluxfree.png)
 
@@ -69,11 +69,3 @@ Huge thanks to these projects. I have learned a lot from them and built on many 
   Major reference and inspiration for my own nodes.
 
 If you star this repo, definitely consider starring theirs too.
-
-## Support
-
-If these nodes help your workflow:
-
-- Star this repo.
-- Share a result using the nodes.
-- Check the free workflows above.
