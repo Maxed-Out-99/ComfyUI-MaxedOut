@@ -51,16 +51,13 @@ Restart ComfyUI after install.
 
 Free workflow releases are posted on Patreon.
 
-- SDXL v1.5 (Free): `[add free Patreon link here]`
-- Mega Flux v1.5 (Free): `[add free Patreon link here]`
-- Patreon profile: `[add Patreon profile link here]`
+- SDXL v1.5 (Free): [Open workflow](https://www.patreon.com/posts/free-sdxl-v1-5-129782694?utm_medium=clipboard_copy&utm_source=copyLink&utm_campaign=postshare_creator&utm_content=join_link)
 
-## Showcase (Placeholders)
+![SDXL v1.5 Free Workflow](assets/sdxlfree.png)
 
-- [Put SDXL v1.5 image here]
-- [Put Mega Flux v1.5 image here]
-- [Put Image Comparer screenshot here]
-- [Put Video Comparer preview GIF/video here]
+- Flux v1.5 (Free): [Open workflow](https://www.patreon.com/posts/free-flux-just-131945103?utm_medium=clipboard_copy&utm_source=copyLink&utm_campaign=postshare_creator&utm_content=join_link)
+
+![Flux v1.5 Free Workflow](assets/fluxfree.png)
 
 ## Credits
 
