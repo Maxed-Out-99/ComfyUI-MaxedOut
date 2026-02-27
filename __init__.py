@@ -19,7 +19,14 @@ def _get_mappings(mod):
 NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}
 
-for _name in ("maxedoutnodes", "mediacomparers", "wan22nodes", "loraloader_mxd", "wan_svi_first_last_mxd"):
+for _name in (
+    "maxedoutnodes",
+    "mediacomparers",
+    "wan22nodes",
+    "loraloader_mxd",
+    "wan_svi_first_last_mxd",
+    "CharacterPrompts",
+):
     _mod = _safe_import(_name)
     _class_map, _display_map = _get_mappings(_mod)
     NODE_CLASS_MAPPINGS.update(_class_map)
@@ -30,4 +37,3 @@ __all__ = [
     "NODE_DISPLAY_NAME_MAPPINGS",
     "WEB_DIRECTORY",
 ]
-

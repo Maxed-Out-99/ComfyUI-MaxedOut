@@ -798,91 +798,6 @@ class LatentHalfMasks:
     
 ########################################################################################################################
 
-# Grow Blur Mask MXD (single-image friendly)
-class GrowBlurMaskMXD:
-    DESCRIPTION = """Expand or contract a mask and blur only the expanded ring (core stays solid)."""
-    TITLE = "Grow Blur Mask MXD"
-    CATEGORY = "MXD/Mask"
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "mask": ("MASK",),
-                "grow_blur": ("INT", {"default": 0, "min": -64, "max": 64, "step": 1}),
-            }
-        }
-
-    RETURN_TYPES = ("MASK",)
-    FUNCTION = "run"
-
-    def _normalize_mask(self, mask: torch.Tensor) -> torch.Tensor:
-        if not isinstance(mask, torch.Tensor):
-            raise ValueError("GrowBlurMaskMXD: mask must be a torch.Tensor.")
-
-        if mask.dim() == 2:
-            mask = mask.unsqueeze(0)
-        elif mask.dim() == 4 and mask.shape[-1] == 1:
-            mask = mask.squeeze(-1)
-
-        if mask.dim() != 3:
-            raise ValueError("GrowBlurMaskMXD: mask must have shape (H,W) or (B,H,W).")
-
-        return mask.float().clamp(0.0, 1.0)
-
-    def _dilate(self, mask: torch.Tensor, radius: int) -> torch.Tensor:
-        if radius <= 0:
-            return mask
-        x = mask.unsqueeze(1)
-        k = 2 * radius + 1
-        y = F.max_pool2d(x, kernel_size=k, stride=1, padding=radius)
-        return y.squeeze(1)
-
-    def _erode(self, mask: torch.Tensor, radius: int) -> torch.Tensor:
-        if radius <= 0:
-            return mask
-        x = mask.unsqueeze(1)
-        k = 2 * radius + 1
-        y = 1.0 - F.max_pool2d(1.0 - x, kernel_size=k, stride=1, padding=radius)
-        return y.squeeze(1)
-
-    def _blur_ring(self, ring: torch.Tensor, radius: int, device: torch.device) -> torch.Tensor:
-        if radius <= 0:
-            return ring
-        ring_cpu = ring.detach().cpu().numpy()
-        blurred = []
-        for i in range(ring_cpu.shape[0]):
-            arr = (ring_cpu[i] * 255.0).astype(np.uint8)
-            pil = Image.fromarray(arr, mode="L")
-            pil = pil.filter(ImageFilter.GaussianBlur(radius))
-            out = np.array(pil).astype(np.float32) / 255.0
-            blurred.append(torch.from_numpy(out))
-        blurred_t = torch.stack(blurred, dim=0).to(device)
-        return blurred_t.clamp(0.0, 1.0)
-
-    def run(self, mask, grow_blur):
-        mask = self._normalize_mask(mask)
-        device = mask.device
-
-        if grow_blur == 0:
-            return (mask,)
-
-        radius = abs(int(grow_blur))
-
-        if grow_blur < 0:
-            eroded = self._erode(mask, radius)
-            return (eroded.clamp(0.0, 1.0),)
-
-        core = mask
-        expanded = self._dilate(mask, radius)
-        ring = (expanded - core).clamp(0.0, 1.0)
-        blurred_ring = self._blur_ring(ring, radius, device)
-        blurred_ring = (blurred_ring * expanded).clamp(0.0, 1.0)
-        out = (core + blurred_ring).clamp(0.0, 1.0)
-        return (out,)
-    
-########################################################################################################################
-
 # Get Latent Size
 class GetLatentSizeMXD:
     DESCRIPTION = """Get image width/height from a latent."""
@@ -1472,7 +1387,6 @@ NODE_CLASS_MAPPINGS = {
     "FluxResolutionMatcher": FluxResolutionMatcher,
     "SDXLResolutionMatcher": SDXLResolutionMatcher,
     "LatentHalfMasks": LatentHalfMasks,
-    "Grow Blur Mask MXD": GrowBlurMaskMXD,
     "Get Latent Size": GetLatentSizeMXD,
     "Place Image By Mask": PlaceImageByMask,
     "Crop Image By Mask": CropImageByMask,
@@ -1500,7 +1414,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "FluxResolutionMatcher": "Flux Resolution Matcher MXD",
     "SDXLResolutionMatcher": "SDXL Resolution Matcher MXD",
     "LatentHalfMasks": "Latent to L/R Masks MXD",
-    "Grow Blur Mask MXD": "Grow Blur Mask MXD",
     "Get Latent Size": "Get Latent Size MXD",
     "Place Image By Mask": "Place Image by Mask MXD",
     "Crop Image By Mask": "Crop Image by Mask MXD",
