@@ -8,6 +8,11 @@ const LORA_LOADER = "LoraLoader|pysssss";
 const LOAD_LATENT_WITH_PARAMS = "LoadLatent_WithParams";
 const LOAD_LATENT_WITH_PARAMS_MXD_ALIAS = "LoadLatent_WithParams MXD";
 const LOAD_LATENT_I2V_MXD = "LoadLatent_I2V_MXD";
+const LOAD_LATENT_I2V_MXD_ALIAS = "LoadLatent_I2V_MXD MXD";
+const LOAD_LATENTS_FROM_FOLDER_WITH_PARAMS = "LoadLatents_FromFolder_WithParams";
+const LOAD_LATENTS_FROM_FOLDER_WITH_PARAMS_MXD_ALIAS = "LoadLatents_FromFolder_WithParams MXD";
+const LOAD_LATENTS_FROM_FOLDER_I2V_MXD = "LoadLatents_FromFolder_I2V_MXD";
+const LOAD_LATENTS_FROM_FOLDER_I2V_MXD_ALIAS = "LoadLatents_FromFolder_I2V_MXD MXD";
 const ENABLE_PYSSSS_NODE_ENHANCEMENTS = false;
 const IMAGE_WIDTH = 384;
 const IMAGE_HEIGHT = 384;
@@ -16,6 +21,11 @@ const NODE_CONFIGS = {
         [LOAD_LATENT_WITH_PARAMS]: { type: "latents", widgetName: "latent", hasImages: false },
         [LOAD_LATENT_WITH_PARAMS_MXD_ALIAS]: { type: "latents", widgetName: "latent", hasImages: false },
         [LOAD_LATENT_I2V_MXD]: { type: "latents", widgetName: "latent", hasImages: false },
+        [LOAD_LATENT_I2V_MXD_ALIAS]: { type: "latents", widgetName: "latent", hasImages: false },
+        [LOAD_LATENTS_FROM_FOLDER_WITH_PARAMS]: { type: "latents", widgetName: "subfolder", hasImages: false },
+        [LOAD_LATENTS_FROM_FOLDER_WITH_PARAMS_MXD_ALIAS]: { type: "latents", widgetName: "subfolder", hasImages: false },
+        [LOAD_LATENTS_FROM_FOLDER_I2V_MXD]: { type: "latents", widgetName: "subfolder", hasImages: false },
+        [LOAD_LATENTS_FROM_FOLDER_I2V_MXD_ALIAS]: { type: "latents", widgetName: "subfolder", hasImages: false },
 };
 
 const CONFIG_BY_TYPE = Object.fromEntries(

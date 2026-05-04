@@ -1,4 +1,6 @@
 import folder_paths
+import comfy.sd
+import comfy.utils
 
 from typing import Union
 
@@ -33,22 +35,77 @@ class MxdPowerLoraLoader:
   RETURN_NAMES = ("MODEL", "CLIP")
   FUNCTION = "load_loras"
 
+  @staticmethod
+  def _coerce_bool(value, default=False) -> bool:
+    if isinstance(value, bool):
+      return value
+    if isinstance(value, str):
+      lowered = value.strip().lower()
+      if lowered in {"true", "1", "yes", "on"}:
+        return True
+      if lowered in {"false", "0", "no", "off"}:
+        return False
+    if value is None:
+      return default
+    return bool(value)
+
+  @staticmethod
+  def _coerce_float(value, default=0.0) -> float:
+    if isinstance(value, bool):
+      return float(value)
+    try:
+      if value is None:
+        return float(default)
+      return float(value)
+    except (TypeError, ValueError):
+      return float(default)
+
+  def _apply_lora_without_clip(self, model, lora, strength_model, strength_clip):
+    lora_path = folder_paths.get_full_path("loras", lora)
+    if not lora_path:
+      return model
+    loaded_lora = comfy.utils.load_torch_file(lora_path, safe_load=True)
+    model, _ = comfy.sd.load_lora_for_models(model, None, loaded_lora, strength_model, strength_clip)
+    return model
+
   def load_loras(self, model=None, clip=None, **kwargs):
     for key, value in kwargs.items():
       key = key.upper()
-      if key.startswith("LORA_") and "on" in value and "lora" in value and "strength" in value:
-        strength_model = value["strength"]
-        strength_clip = value["strengthTwo"] if "strengthTwo" in value else None
+      if not key.startswith("LORA_"):
+        continue
+      if not isinstance(value, dict):
+        log_node_warn(NODE_NAME, f'Skipping malformed LoRA input "{key}" (expected object).')
+        continue
+      if not all(k in value for k in ("on", "lora", "strength")):
+        log_node_warn(NODE_NAME, f'Skipping malformed LoRA input "{key}" (missing fields).')
+        continue
+
+      strength_model = self._coerce_float(value.get("strength"), default=0.0)
+      strength_clip_raw = value.get("strengthTwo")
+
+      if clip is None:
+        if strength_clip_raw is not None and self._coerce_float(strength_clip_raw, 0.0) != 0.0:
+          log_node_warn(NODE_NAME, "Received clip strength even though no clip supplied.")
+        strength_clip = 0.0
+      else:
+        strength_clip = self._coerce_float(strength_clip_raw, default=strength_model)
+
+      if not self._coerce_bool(value.get("on"), default=False):
+        continue
+      if strength_model == 0.0 and strength_clip == 0.0:
+        continue
+
+      lora = get_lora_by_filename(value["lora"], log_node=self.NAME)
+      if model is None or lora is None:
+        continue
+
+      try:
         if clip is None:
-          if strength_clip is not None and strength_clip != 0:
-            log_node_warn(NODE_NAME, "Received clip strength even though no clip supplied.")
-          strength_clip = 0
+          model = self._apply_lora_without_clip(model, lora, strength_model, strength_clip)
         else:
-          strength_clip = strength_clip if strength_clip is not None else strength_model
-        if value["on"] and (strength_model != 0 or strength_clip != 0):
-          lora = get_lora_by_filename(value["lora"], log_node=self.NAME)
-          if model is not None and lora is not None:
-            model, clip = LoraLoader().load_lora(model, clip, lora, strength_model, strength_clip)
+          model, clip = LoraLoader().load_lora(model, clip, lora, strength_model, strength_clip)
+      except Exception as exc:
+        log_node_warn(NODE_NAME, f'Failed to apply LoRA "{value.get("lora")}" ({exc}). Skipping.')
 
     return (model, clip)
 

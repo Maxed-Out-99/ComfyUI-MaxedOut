@@ -1296,21 +1296,160 @@ class SaveImage_MXD:
                     "tooltip": "Choose whether to write files to disk, only preview, or save quietly."
                 }),
             },
+            "optional": {
+                "embed_workflow": ("BOOLEAN", {
+                    "default": True,
+                    "tooltip": "Embed workflow metadata when saving PNG previews/files."
+                }),
+            },
             "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
         }
 
     RETURN_TYPES = ()
     OUTPUT_TOOLTIPS = ("Saves and/or previews the images.",)
 
-    def save(self, images, filename_prefix, mode, prompt=None, extra_pnginfo=None):
+    @staticmethod
+    def _filtered_extra_pnginfo(extra_pnginfo, embed_workflow):
+        if embed_workflow or not isinstance(extra_pnginfo, dict):
+            return extra_pnginfo
+        filtered = {k: v for k, v in extra_pnginfo.items() if str(k).lower() != "workflow"}
+        return filtered or None
+
+    def save(self, images, filename_prefix, mode, embed_workflow=True, prompt=None, extra_pnginfo=None):
+        if embed_workflow:
+            save_prompt = prompt
+            save_extra_pnginfo = self._filtered_extra_pnginfo(extra_pnginfo, True)
+        else:
+            # Core SaveImage embeds the hidden `prompt` graph too.
+            # Drop both to truly disable workflow reconstruction from saved files.
+            save_prompt = None
+            save_extra_pnginfo = None
+
         if mode.startswith("Preview"):
-            return PreviewImage().save_images(images, filename_prefix, prompt, extra_pnginfo)
-        result = SaveImage().save_images(images, filename_prefix, prompt, extra_pnginfo)
+            return PreviewImage().save_images(images, filename_prefix, save_prompt, save_extra_pnginfo)
+        result = SaveImage().save_images(images, filename_prefix, save_prompt, save_extra_pnginfo)
         if mode == "Save Only" and isinstance(result, dict):
             # Strip UI previews so nothing shows up in the ComfyUI viewer.
             return {k: v for k, v in result.items() if k != "ui"}
         return result
     
+########################################################################################################################
+
+class ExtractWorkflowFromImageMXD:
+    TITLE = "Extract Workflow From Image MXD"
+    CATEGORY = "MXD/Image"
+    OUTPUT_NODE = True
+    FUNCTION = "extract_and_save"
+
+    DESCRIPTION = """Save workflow metadata to a JSON file from a wired image execution context."""
+
+    def __init__(self):
+        self.output_dir = folder_paths.get_output_directory()
+        self.type = "output"
+        self.prefix_append = ""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE", {"tooltip": "Any connected image. Used to trigger extraction/save."}),
+                "filename_prefix": ("STRING", {
+                    "default": "workflow/ComfyUI",
+                    "tooltip": "Output JSON prefix. You can include subfolders, e.g. 'workflow/my_run'.",
+                }),
+            },
+            "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("json_path",)
+    OUTPUT_TOOLTIPS = ("Relative path to the saved JSON file in outputs.",)
+
+    @staticmethod
+    def _decode_json_candidate(value):
+        if value is None:
+            return None
+
+        if isinstance(value, (dict, list)):
+            return value
+
+        if isinstance(value, bytes):
+            for enc in ("utf-8", "utf-16", "latin-1"):
+                try:
+                    value = value.decode(enc)
+                    break
+                except Exception:
+                    continue
+            if isinstance(value, bytes):
+                value = value.decode("utf-8", "ignore")
+
+        if not isinstance(value, str):
+            return None
+
+        raw = value.strip()
+        if not raw:
+            return None
+
+        if raw.lower().startswith("workflow:"):
+            raw = raw.split(":", 1)[1].strip()
+
+        parsed = _safe_json_loads(raw)
+        if isinstance(parsed, (dict, list)):
+            return parsed
+        return None
+
+    def _extract_workflow_from_context(self, prompt=None, extra_pnginfo=None):
+        if isinstance(extra_pnginfo, dict):
+            for key in ("workflow", "Workflow"):
+                parsed = self._decode_json_candidate(extra_pnginfo.get(key))
+                if parsed is not None:
+                    return parsed
+
+        parsed_extra = self._decode_json_candidate(extra_pnginfo)
+        if isinstance(parsed_extra, dict):
+            for key in ("workflow", "Workflow"):
+                parsed = self._decode_json_candidate(parsed_extra.get(key))
+                if parsed is not None:
+                    return parsed
+
+        if prompt is not None:
+            parsed_prompt = self._decode_json_candidate(prompt)
+            if parsed_prompt is not None:
+                return {"prompt": parsed_prompt}
+            if isinstance(prompt, dict):
+                return {"prompt": prompt}
+
+        return None
+
+    def extract_and_save(self, image, filename_prefix="workflow/ComfyUI", prompt=None, extra_pnginfo=None):
+        workflow = self._extract_workflow_from_context(prompt, extra_pnginfo)
+        if workflow is None:
+            raise ValueError(
+                "No workflow metadata is available in this execution context. "
+                "Connect generated images from the current run, or ensure workflow metadata is present."
+            )
+
+        filename_prefix += self.prefix_append
+        height = image[0].shape[0]
+        width = image[0].shape[1]
+        full_output_folder, filename, counter, subfolder, _ = folder_paths.get_save_image_path(
+            filename_prefix, self.output_dir, width, height
+        )
+        os.makedirs(full_output_folder, exist_ok=True)
+
+        file = f"{filename}_{counter:05}_.json"
+        save_path = os.path.join(full_output_folder, file)
+
+        with open(save_path, "w", encoding="utf-8", newline="\n") as f:
+            json.dump(workflow, f, ensure_ascii=False, indent=2)
+
+        rel = os.path.join(subfolder, file) if subfolder else file
+        rel = rel.replace("\\", "/")
+        return {
+            "ui": {"text": [f"Saved workflow JSON: {rel}"]},
+            "result": (rel,),
+        }
+
 ########################################################################################################################
 
 class SmartCropByMaskMXD:
@@ -1394,6 +1533,7 @@ NODE_CLASS_MAPPINGS = {
     "LoadImageWithPromptsMXD": LoadImageWithPromptsMXD,
     "ZImageTurboEmptyLatentImage": ZImageTurboEmptyLatentImage,
     "Save Image MXD": SaveImage_MXD,
+    "Extract Workflow From Image MXD": ExtractWorkflowFromImageMXD,
     "SmartCropByMaskMXD": SmartCropByMaskMXD,
     }
 
@@ -1421,6 +1561,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadImageWithPromptsMXD": "Load Image MXD",
     "ZImageTurboEmptyLatentImage": "ZIT Empty Latent Image MXD",
     "Save Image MXD": "Save Image MXD",
+    "Extract Workflow From Image MXD": "Extract Workflow From Image MXD",
     "SmartCropByMaskMXD": "Smart Crop by Mask MXD",
 }
 

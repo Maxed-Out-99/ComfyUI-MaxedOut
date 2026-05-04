@@ -617,8 +617,50 @@ MxdImageComparer["@comparer_mode"] = {
 app.registerExtension({
     name: "MXD.ImageComparer.Standalone",
     async beforeRegisterNodeDef(nodeType, nodeData) {
-        if (NODE_TYPE_STRINGS.has(nodeData.name)) {
-            MxdImageComparer.setUp(nodeType, nodeData);
+        if (!NODE_TYPE_STRINGS.has(nodeData.name)) return;
+
+        // Extend nodeType directly instead of replacing it with an anonymous class.
+        // The old `registerForOverride` approach created `let boundClass = class extends MxdImageComparer {}`
+        // which causes JS to set boundClass.name = "boundClass" (variable-name inference), and newer
+        // ComfyUI's LG renderer uses constructor.name as the fallback node title — hence "boundClass".
+        const origOnNodeCreated = nodeType.prototype.onNodeCreated;
+        nodeType.prototype.onNodeCreated = function () {
+            origOnNodeCreated?.apply(this, arguments);
+            this.imageIndex = 0;
+            this.imgs = [];
+            this.serialize_widgets = true;
+            this.isPointerDown = false;
+            this.isPointerOver = false;
+            this.pointerOverPos = [0, 0];
+            this.canvasWidget = null;
+            this._mxdInitialSize = null;
+            this.properties = this.properties || {};
+            if (!this.properties["comparer_mode"]) {
+                this.properties["comparer_mode"] = "Slide";
+            }
+            this.canvasWidget = this.addCustomWidget(
+                new MxdImageComparerWidget("mxd_comparer", this)
+            );
+            this.setSize(this.computeSize());
+            this.setDirtyCanvas(true, true);
+            this._mxdInitialSize = [...this.size];
+        };
+
+        for (const name of [
+            "onExecuted", "onSerialize", "setIsPointerDown",
+            "onMouseDown", "onMouseEnter", "onMouseLeave",
+            "onMouseMove", "getHelp",
+        ]) {
+            nodeType.prototype[name] = MxdImageComparer.prototype[name];
+        }
+
+        nodeType["@comparer_mode"] = { type: "combo", values: ["Slide", "Click"] };
+    },
+
+    nodeCreated(node) {
+        // Fix nodes already saved in workflows with the old "boundClass" title.
+        if (NODE_TYPE_STRINGS.has(node.type) && node.title === "boundClass") {
+            node.title = node.type;
         }
     },
 });

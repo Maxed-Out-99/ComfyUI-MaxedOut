@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os, re, glob, json, hashlib
+from collections import deque
 from typing import Any, Dict, Tuple, Optional, List, Union
 
 import torch
@@ -37,6 +38,54 @@ from aiohttp import web
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".avi"}
 
 routes = PromptServer.instance.routes
+
+def _sort_paths_newest_first(paths: List[str]) -> List[str]:
+    """Sort file paths by mtime desc (newest first), stable by normalized path."""
+    def _mtime(path: str) -> float:
+        try:
+            return os.path.getmtime(path)
+        except OSError:
+            return 0.0
+
+    return sorted(
+        paths,
+        key=lambda p: (-_mtime(p), p.replace("\\", "/").lower()),
+    )
+
+def _list_latent_subfolders(latents_root: str) -> List[str]:
+    """
+    List latent subfolders recursively (e.g. "a", "a/b"), newest first by
+    latest latent mtime in each branch.
+    """
+    files = glob.glob(os.path.join(latents_root, "**", "*.latent"), recursive=True)
+    if not files:
+        return []
+
+    folder_latest_mtime: Dict[str, float] = {}
+    for file_path in files:
+        rel_dir = os.path.relpath(os.path.dirname(file_path), latents_root).replace(os.sep, "/").strip("/")
+        if not rel_dir or rel_dir == ".":
+            continue
+        try:
+            mtime = os.path.getmtime(file_path)
+        except OSError:
+            mtime = 0.0
+
+        # Include each ancestor so both "a" and "a/b" appear as options.
+        parts = [p for p in rel_dir.split("/") if p]
+        for i in range(1, len(parts) + 1):
+            branch = "/".join(parts[:i])
+            prev = folder_latest_mtime.get(branch, -1.0)
+            if mtime > prev:
+                folder_latest_mtime[branch] = mtime
+
+    return [
+        folder
+        for folder, _ in sorted(
+            folder_latest_mtime.items(),
+            key=lambda kv: (-kv[1], kv[0].lower()),
+        )
+    ]
 
 @routes.get("/mxd/videos/input")
 async def mxd_list_input_videos(request):
@@ -83,10 +132,10 @@ class SaveLatentMXD:
                 "samples": ("LATENT", {"tooltip": "Latent tensor to save."}),
                 "filename_prefix": ("STRING", {"default": "ComfyUI", "tooltip": "Prefix for saved latent filename."}),
             },
-            "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
+            "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO", "unique_id": "UNIQUE_ID"},
         }
 
-    def save_only(self, samples, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
+    def save_only(self, samples, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None, unique_id=None):
 
         # ---------- Save Latent ----------
         latents_dir = os.path.join(folder_paths.get_input_directory(), "latents")
@@ -107,6 +156,7 @@ class SaveLatentMXD:
                 for k, v in extra_pnginfo.items():
                     try: meta[k] = json.dumps(v)
                     except: pass
+            _attach_source_ksampler_metadata(meta, prompt, unique_id)
 
         file = os.path.join(full_output_folder, f"{filename}_{counter:05}_.latent")
 
@@ -141,11 +191,11 @@ class SaveLatent_I2V_MXD:
                 "negative": ("CONDITIONING", {"tooltip": "Negative CONDITIONING after WAN image→video."}),
                 "filename_prefix": ("STRING", {"default": "I2V", "tooltip": "Prefix for saved files"}),
             },
-            "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
+            "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO", "unique_id": "UNIQUE_ID"},
         }
 
     def save_only(self, samples, positive, negative, filename_prefix="I2V",
-                  prompt=None, extra_pnginfo=None):
+                  prompt=None, extra_pnginfo=None, unique_id=None):
 
         # ---- save latent (.latent) ----
         latents_dir = os.path.join(folder_paths.get_input_directory(), "latents")
@@ -166,6 +216,7 @@ class SaveLatent_I2V_MXD:
                 for k, v in extra_pnginfo.items():
                     try: meta[k] = json.dumps(v)
                     except: pass
+            _attach_source_ksampler_metadata(meta, prompt, unique_id)
 
         latent_path = os.path.join(full_output_folder, f"{filename}_{counter:05}_.latent")
 
@@ -227,10 +278,210 @@ def _safe_json_loads(s: Union[str, bytes, None]) -> Optional[Dict[str, Any]]:
             return None
 
 
-def _extract_params_from_prompt_json(prompt_json: Dict[str, Any]) -> Tuple[str, str, int, float, str, str, int]:
+def _node_sort_key(node_id: str) -> Tuple[int, Union[int, str]]:
+    s = str(node_id)
+    try:
+        return (0, int(s))
+    except Exception:
+        return (1, s)
+
+
+def _normalize_prompt_graph(prompt_json: Any) -> Dict[str, Any]:
+    if not isinstance(prompt_json, dict):
+        return {}
+    graph = prompt_json.get("prompt", prompt_json)
+    return graph if isinstance(graph, dict) else {}
+
+
+def _get_graph_node(graph: Dict[str, Any], node_id: Any) -> Optional[Dict[str, Any]]:
+    if node_id is None or not isinstance(graph, dict):
+        return None
+    node = graph.get(str(node_id))
+    return node if isinstance(node, dict) else None
+
+
+def _iter_graph_nodes_sorted(graph: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
+    nodes: List[Tuple[str, Dict[str, Any]]] = []
+    for node_id, node in graph.items():
+        if isinstance(node, dict):
+            nodes.append((str(node_id), node))
+    nodes.sort(key=lambda pair: _node_sort_key(pair[0]))
+    return nodes
+
+
+def _linked_node_id(value: Any) -> Optional[str]:
+    if isinstance(value, (list, tuple)) and len(value) >= 1:
+        return str(value[0])
+    return None
+
+
+def _is_ksampler_node(node: Any) -> bool:
+    if not isinstance(node, dict):
+        return False
+    return "KSampler" in str(node.get("class_type", ""))
+
+
+def _collect_upstream_linked_node_ids(node: Dict[str, Any]) -> List[str]:
+    inputs = node.get("inputs", {})
+    if not isinstance(inputs, dict):
+        return []
+
+    seen = set()
+    ordered = []
+
+    # Prefer latent-carrying links first.
+    for key in ("samples", "latent", "latent_image"):
+        linked = _linked_node_id(inputs.get(key))
+        if linked is not None and linked not in seen:
+            seen.add(linked)
+            ordered.append(linked)
+
+    # Then search all other connected inputs in stable order.
+    for key, value in inputs.items():
+        if key in ("samples", "latent", "latent_image"):
+            continue
+        linked = _linked_node_id(value)
+        if linked is not None and linked not in seen:
+            seen.add(linked)
+            ordered.append(linked)
+
+    return ordered
+
+
+def _find_upstream_ksampler_node_id(graph: Dict[str, Any], start_node_id: Any) -> Optional[str]:
+    if not isinstance(graph, dict) or start_node_id is None:
+        return None
+
+    queue: deque[str] = deque([str(start_node_id)])
+    visited = set()
+
+    while queue:
+        node_id = queue.popleft()
+        if node_id in visited:
+            continue
+        visited.add(node_id)
+
+        node = _get_graph_node(graph, node_id)
+        if not node:
+            continue
+        if _is_ksampler_node(node):
+            return node_id
+
+        for upstream_id in _collect_upstream_linked_node_ids(node):
+            if upstream_id not in visited:
+                queue.append(upstream_id)
+
+    return None
+
+
+def _extract_ksampler_params(node: Dict[str, Any]) -> Dict[str, Any]:
+    inputs = node.get("inputs", {}) if isinstance(node, dict) else {}
+    if not isinstance(inputs, dict):
+        inputs = {}
+
+    out: Dict[str, Any] = {}
+
+    def set_int(key: str):
+        if key in inputs:
+            try:
+                out[key] = int(inputs[key])
+            except Exception:
+                pass
+
+    def set_float(key: str):
+        if key in inputs:
+            try:
+                out[key] = float(inputs[key])
+            except Exception:
+                pass
+
+    def set_str(key: str):
+        if key in inputs and not isinstance(inputs[key], (list, tuple, dict)):
+            try:
+                out[key] = str(inputs[key]).strip()
+            except Exception:
+                pass
+
+    set_int("steps")
+    set_float("cfg")
+    set_str("sampler_name")
+    set_str("scheduler")
+    set_int("start_at_step")
+    set_int("end_at_step")
+
+    return out
+
+
+def _attach_source_ksampler_metadata(meta: Dict[str, Any], prompt: Any, unique_id: Any) -> None:
+    if not isinstance(meta, dict):
+        return
+
+    graph = _normalize_prompt_graph(prompt)
+    if not graph:
+        return
+
+    save_node_id = str(unique_id) if unique_id is not None else ""
+    if not save_node_id:
+        return
+
+    save_node = _get_graph_node(graph, save_node_id)
+    if not save_node:
+        return
+
+    source_candidates = _collect_upstream_linked_node_ids(save_node)
+    if not source_candidates:
+        return
+
+    source_ksampler_id = None
+    for start_id in source_candidates:
+        source_ksampler_id = _find_upstream_ksampler_node_id(graph, start_id)
+        if source_ksampler_id:
+            break
+
+    if not source_ksampler_id:
+        return
+
+    source_node = _get_graph_node(graph, source_ksampler_id)
+    if not source_node:
+        return
+
+    meta["mxd_source_save_node_id"] = save_node_id
+    meta["mxd_source_ksampler_node_id"] = source_ksampler_id
+    try:
+        meta["mxd_source_ksampler_params"] = json.dumps(_extract_ksampler_params(source_node))
+    except Exception:
+        pass
+
+
+def _extract_prompt_text_from_ksampler(graph: Dict[str, Any], ks_node: Dict[str, Any]) -> Tuple[str, str]:
+    pos = ""
+    neg = ""
+
+    inputs = ks_node.get("inputs", {}) if isinstance(ks_node, dict) else {}
+    if not isinstance(inputs, dict):
+        return pos, neg
+
+    def _text_from_clip(link_value: Any) -> str:
+        node_id = _linked_node_id(link_value)
+        if node_id is None:
+            return ""
+        node = _get_graph_node(graph, node_id) or {}
+        if node.get("class_type") == "CLIPTextEncode":
+            return str(node.get("inputs", {}).get("text", "")).strip()
+        return ""
+
+    pos = _text_from_clip(inputs.get("positive"))
+    neg = _text_from_clip(inputs.get("negative"))
+    return pos, neg
+
+
+def _extract_params_from_prompt_json(
+    prompt_json: Dict[str, Any],
+    meta: Optional[Dict[str, Any]] = None,
+) -> Tuple[str, str, int, float, str, str, int]:
     """
     Returns: (positive, negative, steps, cfg, sampler_name, scheduler, end_at_step)
-    parsed from the saved Comfy prompt graph (KSamplerAdvanced only).
+    parsed from the saved Comfy prompt graph with deterministic KSampler selection.
     """
     pos = ""
     neg = ""
@@ -240,55 +491,87 @@ def _extract_params_from_prompt_json(prompt_json: Dict[str, Any]) -> Tuple[str, 
     scheduler = ""
     end_at_step = 0
 
-    # unwrap if saved as {"prompt": {...}}
-    graph = prompt_json.get("prompt", prompt_json) if isinstance(prompt_json, dict) else {}
+    graph = _normalize_prompt_graph(prompt_json)
     if not isinstance(graph, dict):
         return pos, neg, steps, cfg, sampler_name, scheduler, end_at_step
 
-    # find the KSampler/KSamplerAdvanced node
-    ks = None
-    for _, v in graph.items():
-        if "KSampler" in v.get("class_type", ""):  # matches KSamplerAdvanced too
-            ks = v
-            break
-    if not ks:
+    ks_node = None
+    extracted_params: Dict[str, Any] = {}
+
+    # 1) Source KSampler id saved directly in latent metadata.
+    if isinstance(meta, dict):
+        raw_ks = meta.get("mxd_source_ksampler_node_id")
+        if raw_ks is not None:
+            candidate = _get_graph_node(graph, str(raw_ks))
+            if candidate and _is_ksampler_node(candidate):
+                ks_node = candidate
+
+    # 2) Source save node id -> trace upstream to nearest KSampler.
+    if ks_node is None and isinstance(meta, dict):
+        raw_save = meta.get("mxd_source_save_node_id")
+        if raw_save is not None:
+            save_node = _get_graph_node(graph, str(raw_save))
+            if save_node:
+                for start_id in _collect_upstream_linked_node_ids(save_node):
+                    trace_id = _find_upstream_ksampler_node_id(graph, start_id)
+                    if trace_id:
+                        candidate = _get_graph_node(graph, trace_id)
+                        if candidate and _is_ksampler_node(candidate):
+                            ks_node = candidate
+                            break
+
+    # 3) Legacy fallback: last KSampler node in graph.
+    if ks_node is None:
+        for _, node in _iter_graph_nodes_sorted(graph):
+            if _is_ksampler_node(node):
+                ks_node = node
+
+    if not ks_node:
         return pos, neg, steps, cfg, sampler_name, scheduler, end_at_step
 
-    kin = ks.get("inputs", {})
+    pos, neg = _extract_prompt_text_from_ksampler(graph, ks_node)
+    extracted_params = _extract_ksampler_params(ks_node)
 
-    # follow links to CLIPTextEncode nodes for prompts
-    def _as_node_id(x):
-        return str(x[0]) if isinstance(x, (list, tuple)) and x else None
+    if "steps" in extracted_params:
+        steps = int(extracted_params["steps"])
+    if "cfg" in extracted_params:
+        cfg = float(extracted_params["cfg"])
+    if "end_at_step" in extracted_params:
+        end_at_step = int(extracted_params["end_at_step"])
+    if "sampler_name" in extracted_params:
+        sampler_name = str(extracted_params["sampler_name"]).strip()
+    if "scheduler" in extracted_params:
+        scheduler = str(extracted_params["scheduler"]).strip()
 
-    def _text_from_clip(node_id):
-        n = graph.get(str(node_id), {})
-        if n.get("class_type") == "CLIPTextEncode":
-            return str(n.get("inputs", {}).get("text", "")).strip()
-        return ""
-
-    pos = _text_from_clip(_as_node_id(kin.get("positive")))
-    neg = _text_from_clip(_as_node_id(kin.get("negative")))
-
-    # numeric params
-    if "steps" in kin:
-        try:
-            steps = int(kin["steps"])
-        except Exception:
-            pass
-    if "cfg" in kin:
-        try:
-            cfg = float(kin["cfg"])
-        except Exception:
-            pass
-    if "end_at_step" in kin:
-        try:
-            end_at_step = int(kin["end_at_step"])
-        except Exception:
-            pass
-
-    # strings (combos)
-    sampler_name = str(kin.get("sampler_name", "")).strip()
-    scheduler    = str(kin.get("scheduler", "")).strip()
+    # Fallback to saved parameter snapshot if graph parse is incomplete.
+    if isinstance(meta, dict):
+        saved_params = _safe_json_loads(meta.get("mxd_source_ksampler_params"))
+        if isinstance(saved_params, dict):
+            if "steps" in saved_params and "steps" not in extracted_params:
+                try:
+                    steps = int(saved_params["steps"])
+                except Exception:
+                    pass
+            if "cfg" in saved_params and "cfg" not in extracted_params:
+                try:
+                    cfg = float(saved_params["cfg"])
+                except Exception:
+                    pass
+            if "end_at_step" in saved_params and "end_at_step" not in extracted_params:
+                try:
+                    end_at_step = int(saved_params["end_at_step"])
+                except Exception:
+                    pass
+            if "sampler_name" in saved_params and "sampler_name" not in extracted_params:
+                try:
+                    sampler_name = str(saved_params["sampler_name"]).strip()
+                except Exception:
+                    pass
+            if "scheduler" in saved_params and "scheduler" not in extracted_params:
+                try:
+                    scheduler = str(saved_params["scheduler"]).strip()
+                except Exception:
+                    pass
 
     return pos, neg, steps, cfg, sampler_name, scheduler, end_at_step
 
@@ -307,7 +590,7 @@ class LoadLatent_WithParams:
         os.makedirs(latents_root, exist_ok=True)
 
         files = glob.glob(os.path.join(latents_root, "**", "*.latent"), recursive=True)
-        files.sort()
+        files = _sort_paths_newest_first(files)
         options = [os.path.relpath(f, latents_root).replace(os.sep, "/") for f in files]
 
         # live enums from KSamplerAdvanced so values wire cleanly
@@ -480,7 +763,7 @@ class LoadLatent_WithParams:
             samples = {"samples": t.unsqueeze(0)}
 
         prompt_json = _safe_json_loads(meta.get("prompt"))
-        pos, neg, steps, cfg, sampler_name, scheduler, end_at_step = _extract_params_from_prompt_json(prompt_json or {})
+        pos, neg, steps, cfg, sampler_name, scheduler, end_at_step = _extract_params_from_prompt_json(prompt_json or {}, meta)
 
         # SD3 shift (not in KSamplerAdvanced, but we want it)
         shift = self._extract_sd3_shift(meta, prompt_json)
@@ -568,10 +851,7 @@ class LoadLatents_FromFolder_WithParams:
     def INPUT_TYPES(s):
         latents_root = os.path.join(folder_paths.get_input_directory(), "latents")
         os.makedirs(latents_root, exist_ok=True)
-        subs = [""] + sorted([
-            d for d in os.listdir(latents_root)
-            if os.path.isdir(os.path.join(latents_root, d))
-        ])
+        subs = [""] + _list_latent_subfolders(latents_root)
 
         # 🔧 FIX: safely import enums inside function to avoid overwriting RETURN_TYPES
         from nodes import KSamplerAdvanced
@@ -686,7 +966,7 @@ class LoadLatents_FromFolder_WithParams:
         latents_root = os.path.join(folder_paths.get_input_directory(), "latents")
         base = os.path.join(latents_root, subfolder) if subfolder else latents_root
         files = glob.glob(os.path.join(base, "**", "*.latent"), recursive=True)
-        files.sort()
+        files = _sort_paths_newest_first(files)
         if not files:
             raise RuntimeError(f"[LoadLatents_FromFolder_WithParams] No .latent files found in '{base}'.")
 
@@ -705,7 +985,7 @@ class LoadLatents_FromFolder_WithParams:
                 slices = [t.unsqueeze(0)]
 
             prompt_json = _safe_json_loads(meta.get("prompt"))
-            pos, neg, n_steps, cfg, sampler_name, scheduler, end_at_step = _extract_params_from_prompt_json(prompt_json or {})
+            pos, neg, n_steps, cfg, sampler_name, scheduler, end_at_step = _extract_params_from_prompt_json(prompt_json or {}, meta)
             sampler_name = self._coerce_enum(sampler_name, getattr(self.__class__, "_SAMPLERS_ENUM", ()))
             scheduler    = self._coerce_enum(scheduler, getattr(self.__class__, "_SCHEDULERS_ENUM", ()))
             shift_val = self._extract_sd3_shift(meta, prompt_json)
@@ -782,7 +1062,7 @@ class LoadLatent_I2V_MXD(LoadLatent_WithParams):
         latents_root = os.path.join(folder_paths.get_input_directory(), "latents")
         os.makedirs(latents_root, exist_ok=True)
         files = glob.glob(os.path.join(latents_root, "**", "*.latent"), recursive=True)
-        files.sort()
+        files = _sort_paths_newest_first(files)
         # Clean dropdown display (no "latents/" prefix)
         options = [os.path.relpath(f, latents_root).replace(os.sep, "/") for f in files]
 
@@ -890,10 +1170,7 @@ class LoadLatents_FromFolder_I2V_MXD(LoadLatents_FromFolder_WithParams):
         # Same folder logic as the base class
         latents_root = os.path.join(folder_paths.get_input_directory(), "latents")
         os.makedirs(latents_root, exist_ok=True)
-        subs = [""] + sorted([
-            d for d in os.listdir(latents_root)
-            if os.path.isdir(os.path.join(latents_root, d))
-        ])
+        subs = [""] + _list_latent_subfolders(latents_root)
 
         # Pull live enums from KSamplerAdvanced so sampler/scheduler wire cleanly
         from nodes import KSamplerAdvanced
@@ -923,7 +1200,7 @@ class LoadLatents_FromFolder_I2V_MXD(LoadLatents_FromFolder_WithParams):
         latents_root = os.path.join(folder_paths.get_input_directory(), "latents")
         base = os.path.join(latents_root, subfolder) if subfolder else latents_root
         files = glob.glob(os.path.join(base, "**", "*.latent"), recursive=True)
-        files.sort()
+        files = _sort_paths_newest_first(files)
         if not files:
             raise RuntimeError(f"[LoadLatents_FromFolder_I2V_MXD] No .latent files found in '{base}'.")
 
@@ -944,7 +1221,7 @@ class LoadLatents_FromFolder_I2V_MXD(LoadLatents_FromFolder_WithParams):
 
             prompt_json = _safe_json_loads(meta.get("prompt"))
             pos, neg, n_steps, cfg, sampler_name, scheduler, end_at_step = \
-                _extract_params_from_prompt_json(prompt_json or {})
+                _extract_params_from_prompt_json(prompt_json or {}, meta)
 
             sampler_name = self._coerce_enum(sampler_name, getattr(self.__class__, "_SAMPLERS_ENUM", ()))
             scheduler    = self._coerce_enum(scheduler,    getattr(self.__class__, "_SCHEDULERS_ENUM", ()))
@@ -2034,6 +2311,7 @@ if HAVE_COMFY_API:
                         "remote": {
                             "route": "/mxd/videos/input",
                             "refresh_button": True,
+                            "control_after_refresh": "first",
                         },
                     }),
                 }
@@ -2326,6 +2604,173 @@ if HAVE_COMFY_API:
             return io.NodeOutput(positive, negative, out_latent)
 
 
+# ============================================================
+# LTX Video Image Scaler MXD
+# ============================================================
+# LTX Video requires all dimensions to be multiples of 32.
+# Tiers: 480p / 768 / 1024  (or Auto to pick nearest by area)
+# Fit (no pad):  proportional resize <= target, /32 aligned.
+# Crop (no pad): resize-to-cover then center-crop to exact bucket.
+# Square images map to each tier's square bucket.
+# Buckets (all /32):
+#   480p:  832x480  /  480x832  /  512x512
+#   768:   1280x768 /  768x1280 /  768x768
+#   1024:  1792x1024 / 1024x1792 / 1024x1024
+# ============================================================
+
+_LTX_BUCKETS = {
+    "480p": {"landscape": (832, 480),   "portrait": (480, 832),   "square": (512, 512)},
+    "768":  {"landscape": (1280, 768),  "portrait": (768, 1280),  "square": (768, 768)},
+    "1024": {"landscape": (1792, 1024), "portrait": (1024, 1792), "square": (1024, 1024)},
+}
+
+_LTX_TIER_AREAS = {
+    "480p": 832 * 480,    # 399,360
+    "768":  1280 * 768,   # 983,040
+    "1024": 1792 * 1024,  # 1,835,008
+}
+
+_LTX_VALID_RES = {b for t in _LTX_BUCKETS.values() for b in t.values()}
+
+
+def _ceil32(x):
+    x = (int(x) + 31) // 32 * 32
+    return max(32, x)
+
+
+def _floor32(x):
+    x = int(x) // 32 * 32
+    return max(32, x)
+
+
+def _ltx_is_valid_res(w, h):
+    return (w, h) in _LTX_VALID_RES
+
+
+def _ltx_resize_fit_inside(img, out_w, out_h):
+    """Resize to fit inside (out_w, out_h), output /32 aligned on both sides."""
+    _, ih, iw, _ = img.shape
+    s = min(out_w / iw, out_h / ih)
+    tw = _floor32(iw * s)
+    th = _floor32(ih * s)
+    tw = max(32, min(tw, nodes.MAX_RESOLUTION))
+    th = max(32, min(th, nodes.MAX_RESOLUTION))
+    resized = comfy.utils.common_upscale(img.movedim(-1, 1), tw, th, "bilinear", "center").movedim(1, -1)
+    return resized, tw, th
+
+
+def _ltx_resize_then_center_crop(img, out_w, out_h):
+    """Resize to cover (out_w, out_h) then center-crop to exact /32 target."""
+    _, ih, iw, _ = img.shape
+    s = max(out_w / iw, out_h / ih)
+    tw = _ceil32(iw * s)
+    th = _ceil32(ih * s)
+    tmp = comfy.utils.common_upscale(img.movedim(-1, 1), tw, th, "bilinear", "center").movedim(1, -1)
+    y0 = max(0, (th - out_h) // 2)
+    x0 = max(0, (tw - out_w) // 2)
+    return tmp[:, y0:y0+out_h, x0:x0+out_w, :]
+
+
+def _ltx_pick_tier_auto(iw, ih):
+    """Pick the LTX tier whose reference area is closest to the input area."""
+    area = iw * ih
+    return min(_LTX_TIER_AREAS, key=lambda t: abs(area - _LTX_TIER_AREAS[t]))
+
+
+def _ltx_pick_bucket(iw, ih, tier):
+    """Pick the landscape / portrait / square bucket for the given tier."""
+    tier_map = _LTX_BUCKETS[tier]
+    if _is_squareish(iw, ih):
+        return tier_map["square"]
+    return tier_map["landscape"] if iw >= ih else tier_map["portrait"]
+
+
+def _ltx_scale_image_core(image, tier="Auto", crop_to_fit=True):
+    """
+    Core LTX scaler. Returns (scaled_image, out_w, out_h, passthrough).
+    passthrough=True only when Safe Auto detects an already-valid resolution.
+    """
+    _, ih, iw, _ = image.shape
+
+    if tier == "Safe Auto":
+        if _ltx_is_valid_res(iw, ih):
+            return image, iw, ih, True
+        area = iw * ih
+        min_area = int(_LTX_TIER_AREAS["480p"] * 0.5)
+        max_area = int(_LTX_TIER_AREAS["1024"] * 1.8)
+        if area < min_area or area > max_area:
+            size_label = "small" if area < min_area else "large"
+            raise ValueError(
+                f"[LTX_Image_Scaler_MXD] Input {iw}x{ih} is too {size_label} for LTX Video buckets.\n"
+                "LTX Video works best around:\n"
+                "  - 480p tier:  832x480 / 480x832 / 512x512\n"
+                "  - 768 tier:   1280x768 / 768x1280 / 768x768\n"
+                "  - 1024 tier:  1792x1024 / 1024x1792 / 1024x1024\n\n"
+                "Use a source image closer to one of these tiers, or process it "
+                "through your LTX workflow first."
+            )
+        tier = "Auto"
+
+    if tier == "Auto":
+        tier = _ltx_pick_tier_auto(iw, ih)
+
+    bw, bh = _ltx_pick_bucket(iw, ih, tier)
+
+    if _is_squareish(iw, ih):
+        crop_to_fit = False
+
+    if crop_to_fit:
+        out = _ltx_resize_then_center_crop(image, bw, bh)
+    else:
+        out, bw, bh = _ltx_resize_fit_inside(image, bw, bh)
+
+    return out, int(out.shape[2]), int(out.shape[1]), False
+
+
+class LTX_Image_Scaler_MXD:
+    """
+    MXD Image Scaler for LTX Video — all outputs are multiples of 32.
+
+    Tiers:
+      Auto  — picks the tier whose area is closest to the input.
+      480p  — targets 832x480 / 480x832 / 512x512.
+      768   — targets 1280x768 / 768x1280 / 768x768.
+      1024  — targets 1792x1024 / 1024x1792 / 1024x1024.
+
+    Modes:
+      Perfect Fit (Crops Edges)  resize-to-cover + center-crop to exact bucket size.
+      Closest Fit (No Crop)      proportional resize, /32-aligned; may be smaller than bucket.
+
+    Square images (aspect ratio within +-3% of 1:1) map to the tier's square bucket.
+    Returns image + width + height so downstream nodes can read the final dims directly.
+    """
+
+    TITLE = "LTX Video Image Scaler MXD"
+    CATEGORY = "image/processing"
+    RETURN_TYPES = ("IMAGE", "INT", "INT")
+    RETURN_NAMES = ("image", "width", "height")
+    FUNCTION = "scale"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "tier": (["Auto", "480p", "768", "1024"], {"default": "Auto"}),
+                "crop_to_fit": ("BOOLEAN", {
+                    "default": True,
+                    "label_on": "Perfect Fit (Crops Edges)",
+                    "label_off": "Closest Fit (No Crop)",
+                }),
+            }
+        }
+
+    def scale(self, image, tier="Auto", crop_to_fit=True):
+        image = _validate_image_batch_4d(image, "LTX_Image_Scaler_MXD", "image")
+        out, ow, oh, _ = _ltx_scale_image_core(image, tier=tier, crop_to_fit=crop_to_fit)
+        return (out, ow, oh)
+
+
 # ---------- Node registration ----------
 NODE_CLASS_MAPPINGS = {
     "SaveLatentMXD": SaveLatentMXD,
@@ -2337,6 +2782,7 @@ NODE_CLASS_MAPPINGS = {
     "LoadLatent_I2V_MXD": LoadLatent_I2V_MXD,
     "LoadLatents_FromFolder_I2V_MXD": LoadLatents_FromFolder_I2V_MXD,
     "WAN22_I2V_Image_Scaler_MXD": WAN22_I2V_Image_Scaler_MXD,
+    "LTX_Image_Scaler_MXD": LTX_Image_Scaler_MXD,
     "WAN22_I2V_Match_Resolution_MXD": WAN22_I2V_Match_Resolution_MXD,
     "Frames_Remove_From_Start_MXD": Frames_Remove_From_Start_MXD,
     "GroupVideoFramesMXD": GroupVideoFramesMXD,
@@ -2365,6 +2811,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadLatent_I2V_MXD": "Load Latent I2V MXD",
     "LoadLatents_FromFolder_I2V_MXD": "Load Latent Batch I2V MXD",
     "WAN22_I2V_Image_Scaler_MXD": "Image Scaler Wan 2.2 I2V MXD",
+    "LTX_Image_Scaler_MXD": "LTX Video Image Scaler MXD",
     "WAN22_I2V_Match_Resolution_MXD": "Match Resolution Wan 2.2 I2V MXD",
     "Frames_Remove_From_Start_MXD": "Remove Frames From Start MXD",
     "GroupVideoFramesMXD": "Group Video Frames MXD",
