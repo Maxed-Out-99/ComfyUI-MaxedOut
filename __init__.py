@@ -24,8 +24,8 @@ for _name in (
     "mediacomparers",
     "wan22nodes",
     "loraloader_mxd",
-    "wan_svi_first_last_mxd",
     "CharacterPrompts",
+    "ltxnodes",
 ):
     _mod = _safe_import(_name)
     _class_map, _display_map = _get_mappings(_mod)

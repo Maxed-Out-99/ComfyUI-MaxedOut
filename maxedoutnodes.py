@@ -1,9 +1,10 @@
 from __future__ import annotations
-import torch, math, comfy, os, folder_paths, node_helpers, comfy.model_management, comfy.utils, json, hashlib, re
+import torch, math, comfy, os, folder_paths, node_helpers, comfy.model_management, comfy.utils, json, hashlib, re, random
 import torch.nn.functional as F
 from comfy.comfy_types import IO, ComfyNodeABC, InputTypeDict
 import numpy as np
-from PIL import Image, ImageOps, ImageSequence, ImageFilter
+from PIL import Image, ImageOps, ImageSequence, ImageFilter, ImageColor
+from nodes import SaveImage
 try:
     from comfy_api.latest import io
     HAVE_COMFY_API = True
@@ -1514,6 +1515,189 @@ class SmartCropByMaskMXD:
 
 ########################################################################################################################
 
+class BboxDetectorCombinedBatchMXD:
+    DESCRIPTION = "Run an Impact Pack BBOX_DETECTOR combined mask over each image in a batch."
+    CATEGORY = "MXD/Detector"
+    RETURN_TYPES = ("MASK",)
+    RETURN_NAMES = ("mask",)
+    FUNCTION = "detect"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "bbox_detector": ("BBOX_DETECTOR",),
+                "images": ("IMAGE",),
+                "threshold": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "dilation": ("INT", {"default": 4, "min": -512, "max": 512, "step": 1}),
+            }
+        }
+
+    def detect(self, bbox_detector, images, threshold=0.5, dilation=4):
+        if images.ndim == 3:
+            images = images.unsqueeze(0)
+        if images.ndim != 4:
+            raise ValueError(f"[BboxDetectorCombinedBatchMXD] Expected IMAGE tensor [B,H,W,C], got shape {tuple(images.shape)}")
+
+        masks = []
+        frame_count, height, width, _ = images.shape
+        pbar = comfy.utils.ProgressBar(frame_count)
+
+        for i in range(frame_count):
+            frame = images[i:i + 1]
+            mask = bbox_detector.detect_combined(frame, threshold, dilation)
+            if mask is None:
+                mask = torch.zeros((height, width), dtype=torch.float32, device="cpu")
+            elif torch.is_tensor(mask):
+                mask = mask.detach().to(dtype=torch.float32, device="cpu")
+            else:
+                mask = torch.as_tensor(mask, dtype=torch.float32, device="cpu")
+
+            if mask.ndim == 3 and mask.shape[0] == 1:
+                mask = mask.squeeze(0)
+            if mask.ndim != 2:
+                raise ValueError(f"[BboxDetectorCombinedBatchMXD] Detector returned unexpected mask shape {tuple(mask.shape)} for frame {i}.")
+
+            masks.append(mask.unsqueeze(0))
+            pbar.update(1)
+
+        return (torch.cat(masks, dim=0),)
+
+########################################################################################################################
+
+def _parse_mxd_mask_color(color_string):
+    if color_string is None:
+        return [255, 255, 255]
+
+    text = str(color_string).strip()
+    color = [255, 255, 255]
+
+    if "," in text:
+        try:
+            values = [float(channel.strip()) for channel in text.split(",")]
+            if all(0.0 <= value <= 1.0 for value in values):
+                color = [int(value * 255) for value in values]
+            else:
+                color = [int(value) for value in values]
+        except Exception:
+            color = [255, 255, 255]
+    else:
+        try:
+            color = list(ImageColor.getrgb(text))
+        except Exception:
+            try:
+                value = float(text)
+                value = int(value * 255) if 0.0 <= value <= 1.0 else int(value)
+                color = [value, value, value]
+            except Exception:
+                color = [255, 255, 255]
+
+    color = np.clip(color, 0, 255).astype(np.int32).tolist()
+    if len(color) < 3:
+        color = (color + [color[-1] if color else 255] * 3)[:3]
+    return color[:4]
+
+
+def _mxd_image_batch(image):
+    if image is None:
+        return None
+    if image.ndim == 3:
+        image = image.unsqueeze(0)
+    if image.ndim != 4:
+        raise ValueError(f"[ImageAndMaskPreviewMXD] Expected IMAGE tensor [B,H,W,C], got shape {tuple(image.shape)}")
+    return image.to(dtype=torch.float32)
+
+
+def _mxd_mask_batch(mask, height=None, width=None, batch_size=None, device=None):
+    if mask is None:
+        return None
+
+    if mask.ndim == 2:
+        mask = mask.unsqueeze(0)
+    elif mask.ndim == 4 and mask.shape[-1] == 1:
+        mask = mask[..., 0]
+    elif mask.ndim == 4 and mask.shape[1] == 1:
+        mask = mask[:, 0]
+
+    if mask.ndim != 3:
+        raise ValueError(f"[ImageAndMaskPreviewMXD] Expected MASK tensor [B,H,W], got shape {tuple(mask.shape)}")
+
+    mask = mask.to(dtype=torch.float32, device=device if device is not None else mask.device).clamp(0.0, 1.0)
+
+    if height is not None and width is not None and (mask.shape[-2] != height or mask.shape[-1] != width):
+        mask = F.interpolate(mask.unsqueeze(1), size=(height, width), mode="bilinear", align_corners=False).squeeze(1)
+
+    if batch_size is not None:
+        mask = comfy.utils.repeat_to_batch_size(mask, batch_size)
+
+    return mask
+
+
+class ImageAndMaskPreviewMXD(SaveImage):
+    DESCRIPTION = """Return an image with a mask composited over it without creating a node preview."""
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("composite",)
+    FUNCTION = "execute"
+    CATEGORY = "MXD/Image"
+    OUTPUT_NODE = False
+
+    def __init__(self):
+        self.output_dir = folder_paths.get_temp_directory()
+        self.type = "temp"
+        self.prefix_append = "_temp_" + "".join(random.choice("abcdefghijklmnopqrstupvxyz") for _ in range(5))
+        self.compress_level = 4
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "mask_opacity": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "mask_color": ("STRING", {"default": "255, 255, 255", "tooltip": "RGB/RGBA CSV, hex, or color name."}),
+                "pass_through": ("BOOLEAN", {"default": True, "tooltip": "Legacy option. This node now always returns the composite without creating a preview."}),
+            },
+            "optional": {
+                "image": ("IMAGE",),
+                "mask": ("MASK",),
+            },
+            "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
+        }
+
+    def _build_composite(self, image=None, mask=None, mask_opacity=1.0, mask_color="255, 255, 255"):
+        image = _mxd_image_batch(image)
+
+        if image is None and mask is None:
+            raise ValueError("[ImageAndMaskPreviewMXD] Connect an image, a mask, or both.")
+
+        if image is None:
+            mask = _mxd_mask_batch(mask)
+            return mask.unsqueeze(-1).expand(-1, -1, -1, 3).contiguous()
+
+        if image.shape[-1] == 1:
+            image = image.expand(-1, -1, -1, 3).clone()
+        elif image.shape[-1] >= 3:
+            image = image[..., :3].clone()
+        else:
+            raise ValueError(f"[ImageAndMaskPreviewMXD] Expected IMAGE tensor with 1 or more channels, got shape {tuple(image.shape)}")
+        if mask is None:
+            return image
+
+        batch_size, height, width, channels = image.shape
+        mask = _mxd_mask_batch(mask, height, width, batch_size, image.device)
+        color = _parse_mxd_mask_color(mask_color)
+        alpha = mask.mul(float(mask_opacity)).clamp(0.0, 1.0)
+        if len(color) == 4:
+            alpha = alpha * (color[3] / 255.0)
+
+        rgb = torch.tensor(color[:3], dtype=image.dtype, device=image.device).view(1, 1, 1, channels) / 255.0
+        alpha = alpha.unsqueeze(-1)
+        return (image * (1.0 - alpha) + rgb * alpha).clamp(0.0, 1.0)
+
+    def execute(self, mask_opacity, mask_color, pass_through, filename_prefix="ComfyUI", image=None, mask=None, prompt=None, extra_pnginfo=None):
+        composite = self._build_composite(image=image, mask=mask, mask_opacity=mask_opacity, mask_color=mask_color)
+        return (composite,)
+
+########################################################################################################################
+
 # NODE MAPPING
 NODE_CLASS_MAPPINGS = {
     "Flux Empty Latent Image": FluxEmptyLatentImage,
@@ -1535,6 +1719,8 @@ NODE_CLASS_MAPPINGS = {
     "Save Image MXD": SaveImage_MXD,
     "Extract Workflow From Image MXD": ExtractWorkflowFromImageMXD,
     "SmartCropByMaskMXD": SmartCropByMaskMXD,
+    "BboxDetectorCombinedBatchMXD": BboxDetectorCombinedBatchMXD,
+    "ImageAndMaskPreviewMXD": ImageAndMaskPreviewMXD,
     }
 
 if HAVE_COMFY_API:
@@ -1563,6 +1749,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Save Image MXD": "Save Image MXD",
     "Extract Workflow From Image MXD": "Extract Workflow From Image MXD",
     "SmartCropByMaskMXD": "Smart Crop by Mask MXD",
+    "BboxDetectorCombinedBatchMXD": "BBOX Detector Combined Batch MXD",
+    "ImageAndMaskPreviewMXD": "Image and Mask Preview MXD",
 }
 
 if HAVE_COMFY_API:

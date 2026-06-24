@@ -20,6 +20,14 @@ def _check_valid_model_type(request):
   return None
 
 
+def _file_details_sort_key(file_info):
+  modified = file_info.get('modified')
+  if not isinstance(modified, (int, float)):
+    modified = 0
+  file = str(file_info.get('file') or '').replace('\\', '/').lower()
+  return (-modified, file)
+
+
 @routes.get('/loraloader-mxd/api/{type}')
 async def api_get_models_list(request):
   """Returns a list of model types from user configuration.
@@ -59,6 +67,8 @@ async def api_get_models_list(request):
         id=f'no_file_details_{model_type}',
         at_most_secs=30
       )
+    if model_type == 'loras':
+      response.sort(key=_file_details_sort_key)
     return web.json_response(response)
 
   return web.json_response(list(files))

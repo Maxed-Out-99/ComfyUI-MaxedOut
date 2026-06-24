@@ -18,7 +18,7 @@ const EXTENSION_BASE = new URL(".", import.meta.url).pathname.replace(/\/$/, "")
 class MxdInfoDialog extends MxdDialog {
   constructor(file) {
     const dialogOptions = {
-      class: "rgthree-info-dialog",
+      class: "mxd-info-dialog",
       title: `<h2>Loading...</h2>`,
       content: "<center>Loading..</center>",
       onBeforeClose: () => true,
@@ -60,7 +60,7 @@ class MxdInfoDialog extends MxdDialog {
       this.setContent(this.getInfoContent());
       this.setTitle(this.modelInfo?.name || this.modelInfo?.file || "Unknown");
     } else if (action === "copy-trained-words") {
-      const selected = queryAll(".-rgthree-is-selected", target.closest("tr"));
+      const selected = queryAll(".-mxd-is-selected", target.closest("tr"));
       const text = selected.map((el) => el.getAttribute("data-word")).join(", ");
       await navigator.clipboard.writeText(text);
       mxdRuntime.showMessage({
@@ -70,7 +70,7 @@ class MxdInfoDialog extends MxdDialog {
         timeout: 3000,
       });
     } else if (action === "toggle-trained-word") {
-      target?.classList.toggle("-rgthree-is-selected");
+      target?.classList.toggle("-mxd-is-selected");
       const tr = target.closest("tr");
       if (tr) {
         const span = query("td:first-child > *", tr);
@@ -78,7 +78,7 @@ class MxdInfoDialog extends MxdDialog {
         if (!small) {
           small = $el("small", { parent: span });
         }
-        const num = queryAll(".-rgthree-is-selected", tr).length;
+        const num = queryAll(".-mxd-is-selected", tr).length;
         small.innerHTML = num ? `${num} selected | <span role="button" data-action="copy-trained-words">Copy</span>` : "";
       }
     } else if (action === "edit-row") {
@@ -87,7 +87,7 @@ class MxdInfoDialog extends MxdDialog {
       const input = td.querySelector("input,textarea");
       if (!input) {
         const fieldName = tr.dataset["fieldName"];
-        tr.classList.add("-rgthree-editing");
+        tr.classList.add("-mxd-editing");
         const isTextarea = fieldName === "userNote";
         const rowInput = $el(`${isTextarea ? "textarea" : 'input[type="text"]'}`, { value: td.textContent });
         rowInput.addEventListener("keydown", (evt) => {
@@ -118,13 +118,13 @@ class MxdInfoDialog extends MxdDialog {
     const info = this.modelInfo || {};
     const civitaiLink = info.links?.find((i) => i.includes("civitai.com/models"));
     const html = `
-      <ul class="rgthree-info-area">
-        <li title="Type" class="rgthree-info-tag -type -type-${(info.type || "").toLowerCase()}"><span>${info.type || ""}</span></li>
-        <li title="Base Model" class="rgthree-info-tag -basemodel -basemodel-${(info.baseModel || "").toLowerCase()}"><span>${info.baseModel || ""}</span></li>
-        <li class="rgthree-info-menu" stub="menu"></li>
+      <ul class="mxd-info-area">
+        <li title="Type" class="mxd-info-tag -type -type-${(info.type || "").toLowerCase()}"><span>${info.type || ""}</span></li>
+        <li title="Base Model" class="mxd-info-tag -basemodel -basemodel-${(info.baseModel || "").toLowerCase()}"><span>${info.baseModel || ""}</span></li>
+        <li class="mxd-info-menu" stub="menu"></li>
       </ul>
 
-      <table class="rgthree-info-table">
+      <table class="mxd-info-table">
         ${infoTableRow("File", info.file || "")}
         ${infoTableRow("Hash (sha256)", info.sha256 || "")}
         ${
@@ -135,7 +135,7 @@ class MxdInfoDialog extends MxdDialog {
               : info.raw?.civitai?.error
                 ? infoTableRow("Civitai", info.raw?.civitai?.error)
                 : !info.raw?.civitai
-                  ? infoTableRow("Civitai", `<button class="rgthree-button" data-action="fetch-civitai">Fetch info from civitai</button>`)
+                  ? infoTableRow("Civitai", `<button class="mxd-button" data-action="fetch-civitai">Fetch info from civitai</button>`)
                   : ""
         }
         ${infoTableRow("Name", info.name || info.raw?.metadata?.ss_output_name || "", "Display name.", "name")}
@@ -155,7 +155,7 @@ class MxdInfoDialog extends MxdDialog {
         ${infoTableRow("Additional Notes", info.userNote ?? "", "Local note.", "userNote")}
       </table>
 
-      <ul class="rgthree-info-images">${
+      <ul class="mxd-info-images">${
         info.images?.map(
           (img) => `
         <li>
@@ -229,14 +229,14 @@ function infoTableRow(name, value, help = "", editableFieldName = "") {
     <tr class="${editableFieldName ? "editable" : ""}" ${editableFieldName ? `data-field-name="${editableFieldName}"` : ""}>
       <td><span>${name} ${help ? `<span class="-help" title="${help}"></span>` : ""}<span></td>
       <td ${editableFieldName ? "" : 'colspan="2"'}>${String(value).startsWith("<") ? value : `<span>${value}<span>`}</td>
-      ${editableFieldName ? `<td style="width: 24px;"><button class="rgthree-button-reset rgthree-button-edit" data-action="edit-row">${pencilColored}${diskColored}</button></td>` : ""}
+      ${editableFieldName ? `<td style="width: 24px;"><button class="mxd-button-reset mxd-button-edit" data-action="edit-row">${pencilColored}${diskColored}</button></td>` : ""}
     </tr>`;
 }
 
 function getTrainedWordsMarkup(words) {
-  let markup = `<ul class="rgthree-info-trained-words-list">`;
+  let markup = `<ul class="mxd-info-trained-words-list">`;
   for (const wordData of words || []) {
-    markup += `<li title="${wordData.word}" data-word="${wordData.word}" class="rgthree-info-trained-words-list-item" data-action="toggle-trained-word">
+    markup += `<li title="${wordData.word}" data-word="${wordData.word}" class="mxd-info-trained-words-list-item" data-action="toggle-trained-word">
       <span>${wordData.word}</span>
       ${wordData.civitai ? logoCivitai : ""}
       ${wordData.count != null ? `<small>${wordData.count}</small>` : ""}
@@ -263,7 +263,7 @@ function saveEditableRow(info, tr, saving = true) {
     LORA_INFO_SERVICE.savePartialInfo(info.file, { [fieldName]: newValue });
     modified = true;
   }
-  tr.classList.remove("-rgthree-editing");
+  tr.classList.remove("-mxd-editing");
   const td = query("td:nth-child(2)", tr);
   appendChildren(empty(td), [$el("span", { text: newValue })]);
   return modified;

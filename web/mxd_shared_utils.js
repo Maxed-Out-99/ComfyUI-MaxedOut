@@ -133,7 +133,7 @@ export function defineProperty(instance, property, desc) {
     var _a, _b, _c, _d, _e, _f;
     const existingDesc = Object.getOwnPropertyDescriptor(instance, property);
     if ((existingDesc === null || existingDesc === void 0 ? void 0 : existingDesc.configurable) === false) {
-        throw new Error(`Error: rgthree-comfy cannot define un-configurable property "${property}"`);
+        throw new Error(`Error: MaxedOut cannot define un-configurable property "${property}"`);
     }
     if ((existingDesc === null || existingDesc === void 0 ? void 0 : existingDesc.get) && desc.get) {
         const descGet = desc.get;
@@ -386,13 +386,13 @@ export class Broadcaster extends EventTarget {
             }, 250);
         }
         else {
-            this.dispatchEvent(new CustomEvent("rgthree-broadcast-message", {
+            this.dispatchEvent(new CustomEvent("mxd-broadcast-message", {
                 detail: Object.assign({ replyTo: (_b = e.data) === null || _b === void 0 ? void 0 : _b.id }, e.data),
             }));
         }
     }
     addMessageListener(callback, options) {
-        return super.addEventListener("rgthree-broadcast-message", callback, options);
+        return super.addEventListener("mxd-broadcast-message", callback, options);
     }
 }
 const broadcastChannelMap = new Map();

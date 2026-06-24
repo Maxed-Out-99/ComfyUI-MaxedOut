@@ -1,4 +1,4 @@
-.rgthree-menu {
+.mxd-menu {
   list-style: none;
   padding: 0;
   margin: 0;
@@ -12,31 +12,31 @@
   font-size: 12px;
   box-shadow: 0 0 10px black !important;
 }
-.rgthree-menu > li {
+.mxd-menu > li {
   position: relative;
   padding: 4px 6px;
   z-index: 9999;
   white-space: nowrap;
 }
-.rgthree-menu > li[role=button] {
+.mxd-menu > li[role=button] {
   background-color: var(--comfy-menu-bg) !important;
   color: var(--input-text);
   cursor: pointer;
 }
-.rgthree-menu > li[role=button]:hover {
+.mxd-menu > li[role=button]:hover {
   filter: brightness(155%);
 }
-.rgthree-menu[state^=measuring] {
+.mxd-menu[state^=measuring] {
   display: block;
   opacity: 0;
 }
-.rgthree-menu[state=open] {
+.mxd-menu[state=open] {
   display: block;
   opacity: 1;
   pointer-events: all;
 }
 
-.rgthree-top-menu {
+.mxd-top-menu {
   box-sizing: border-box;
   white-space: nowrap;
   background: var(--content-bg);
@@ -47,17 +47,17 @@
   padding: 0;
   margin: 0;
 }
-.rgthree-top-menu * {
+.mxd-top-menu * {
   box-sizing: inherit;
 }
-.rgthree-top-menu > li:not(#fakeid) {
+.mxd-top-menu > li:not(#fakeid) {
   list-style: none;
   padding: 0;
   margin: 0;
   position: relative;
   z-index: 2;
 }
-.rgthree-top-menu > li:not(#fakeid) > button {
+.mxd-top-menu > li:not(#fakeid) > button {
   cursor: pointer;
   padding: 8px 12px 8px 8px;
   width: 100%;
@@ -67,21 +67,21 @@
   align-items: center;
   justify-content: start;
 }
-.rgthree-top-menu > li:not(#fakeid) > button:hover {
+.mxd-top-menu > li:not(#fakeid) > button:hover {
   background-color: var(--comfy-input-bg);
 }
-.rgthree-top-menu > li:not(#fakeid) > button svg {
+.mxd-top-menu > li:not(#fakeid) > button svg {
   height: 16px;
   width: auto;
   margin-inline-end: 0.6em;
 }
-.rgthree-top-menu > li:not(#fakeid) > button svg.github-star {
+.mxd-top-menu > li:not(#fakeid) > button svg.github-star {
   fill: rgb(227, 179, 65);
 }
-.rgthree-top-menu > li:not(#fakeid).rgthree-message {
+.mxd-top-menu > li:not(#fakeid).mxd-message {
   min-height: 32px;
 }
-.rgthree-top-menu > li:not(#fakeid).rgthree-message > span {
+.mxd-top-menu > li:not(#fakeid).mxd-message > span {
   padding: 8px 12px;
   display: block;
   width: 100%;
@@ -89,7 +89,7 @@
   font-style: italic;
   font-size: 12px;
 }
-.rgthree-top-menu.-modal::after {
+.mxd-top-menu.-modal::after {
   content: "";
   display: block;
   position: fixed;
@@ -98,6 +98,6 @@
   background: rgba(0, 0, 0, 0.0666666667);
 }
 
-body.rgthree-modal-menu-open > *:not(.rgthree-menu):not(.rgthree-top-messages-container) {
+body.mxd-modal-menu-open > *:not(.mxd-menu):not(.mxd-top-messages-container) {
   filter: blur(2px);
 }

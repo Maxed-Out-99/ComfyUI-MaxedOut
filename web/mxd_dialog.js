@@ -3,16 +3,16 @@ export class MxdDialog extends EventTarget {
     constructor(options) {
         super();
         this.options = options;
-        let container = $el("div.rgthree-dialog-container");
+        let container = $el("div.mxd-dialog-container");
         this.element = $el("dialog", {
-            classes: ["rgthree-dialog", options.class || ""],
+            classes: ["mxd-dialog", options.class || ""],
             child: container,
             parent: document.body,
             events: {
                 click: (event) => {
                     if (!this.element.open ||
                         event.target === container ||
-                        getClosestOrSelf(event.target, `.rgthree-dialog-container`) === container) {
+                        getClosestOrSelf(event.target, `.mxd-dialog-container`) === container) {
                         return;
                     }
                     return this.close();
@@ -22,7 +22,7 @@ export class MxdDialog extends EventTarget {
         this.element.addEventListener("close", (event) => {
             this.onDialogElementClose();
         });
-        this.titleElement = $el("div.rgthree-dialog-container-title", {
+        this.titleElement = $el("div.mxd-dialog-container-title", {
             parent: container,
             children: !options.title
                 ? null
@@ -34,11 +34,11 @@ export class MxdDialog extends EventTarget {
                             : options.title
                         : options.title,
         });
-        this.contentElement = $el("div.rgthree-dialog-container-content", {
+        this.contentElement = $el("div.mxd-dialog-container-content", {
             parent: container,
             child: options.content,
         });
-        const footerEl = $el("footer.rgthree-dialog-container-footer", { parent: container });
+        const footerEl = $el("footer.mxd-dialog-container-footer", { parent: container });
         for (const button of options.buttons || []) {
             $el("button", {
                 text: button.label,
@@ -56,7 +56,7 @@ export class MxdDialog extends EventTarget {
         if (options.closeButtonLabel !== false) {
             $el("button", {
                 text: options.closeButtonLabel || "Close",
-                className: "rgthree-button",
+                className: "mxd-button",
                 parent: footerEl,
                 events: {
                     click: (e) => {
@@ -76,7 +76,7 @@ export class MxdDialog extends EventTarget {
         setAttributes(this.contentElement, { children: content });
     }
     show() {
-        document.body.classList.add("rgthree-dialog-open");
+        document.body.classList.add("mxd-dialog-open");
         this.element.showModal();
         this.dispatchEvent(new CustomEvent("show"));
         return this;
@@ -88,7 +88,7 @@ export class MxdDialog extends EventTarget {
         this.element.close();
     }
     onDialogElementClose() {
-        document.body.classList.remove("rgthree-dialog-open");
+        document.body.classList.remove("mxd-dialog-open");
         this.element.remove();
         this.dispatchEvent(new CustomEvent("close", this.getCloseEventDetail()));
     }

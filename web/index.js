@@ -3,4 +3,6 @@ import './js/image_comparer.js';
 import './addons/zip_loader/js/zip_loader.js';
 import './loraloader_mxd_entry.js';
 import './mxd_character_prompts.js';
+import './ltx_sampler_mxd.js';
+import './wan22_video_prep_mxd.js';
 

@@ -196,41 +196,51 @@ class SaveLatent_I2V_MXD:
 
     def save_only(self, samples, positive, negative, filename_prefix="I2V",
                   prompt=None, extra_pnginfo=None, unique_id=None):
-
-        # ---- save latent (.latent) ----
-        latents_dir = os.path.join(folder_paths.get_input_directory(), "latents")
-        os.makedirs(latents_dir, exist_ok=True)
-
-        full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(
-            filename_prefix, latents_dir
+        _save_i2v_latent_bundle(
+            samples=samples,
+            positive=positive,
+            negative=negative,
+            filename_prefix=filename_prefix,
+            prompt=prompt,
+            extra_pnginfo=extra_pnginfo,
+            unique_id=unique_id,
         )
+        return {}
 
-        # Metadata
-        meta = None
-        if not args.disable_metadata:
-            meta = {}
-            if prompt is not None:
-                try: meta["prompt"] = json.dumps(prompt)
-                except: pass
-            if extra_pnginfo is not None:
-                for k, v in extra_pnginfo.items():
-                    try: meta[k] = json.dumps(v)
-                    except: pass
-            _attach_source_ksampler_metadata(meta, prompt, unique_id)
+class SaveLatent_VACE22_MXD(SaveLatent_I2V_MXD):
+    """
+    VACE 2.2 saver: I2V latent + conditioning sidecar + trim_latent value.
+    Kept as a separate node so existing I2V workflows stay unchanged.
+    """
+    TITLE = "Save Latent Vace 2.2"
+    CATEGORY = "MXD/Latents (VACE 2.2)"
 
-        latent_path = os.path.join(full_output_folder, f"{filename}_{counter:05}_.latent")
-
-        payload = {
-            "latent_tensor": samples["samples"].contiguous(),
-            "latent_format_version_0": torch.tensor([]),
+    @classmethod
+    def INPUT_TYPES(cls):
+        inputs = SaveLatent_I2V_MXD.INPUT_TYPES()
+        inputs["optional"] = {
+            "trim_latent": ("INT", {
+                "default": 0,
+                "min": 0,
+                "max": 10000,
+                "step": 1,
+                "tooltip": "VACE 2.2 trim_latent value to preserve with this latent. Usually 0 or 1."
+            }),
         }
-        comfy.utils.save_torch_file(payload, latent_path, metadata=meta)
+        return inputs
 
-        # ---- save conditioning sidecar (.cond.pt) ----
-        cond_path = latent_path.replace(".latent", ".cond.pt")
-        torch.save({"positive": positive, "negative": negative}, cond_path)
-
-        # No preview logic at all
+    def save_only(self, samples, positive, negative, filename_prefix="I2V",
+                  trim_latent=0, prompt=None, extra_pnginfo=None, unique_id=None):
+        _save_i2v_latent_bundle(
+            samples=samples,
+            positive=positive,
+            negative=negative,
+            filename_prefix=filename_prefix,
+            prompt=prompt,
+            extra_pnginfo=extra_pnginfo,
+            unique_id=unique_id,
+            sidecar_extra={"trim_latent": _coerce_trim_latent(trim_latent)},
+        )
         return {}
 
 # ---------- Helpers ----------
@@ -451,6 +461,97 @@ def _attach_source_ksampler_metadata(meta: Dict[str, Any], prompt: Any, unique_i
         meta["mxd_source_ksampler_params"] = json.dumps(_extract_ksampler_params(source_node))
     except Exception:
         pass
+
+
+def _build_latent_metadata(prompt=None, extra_pnginfo=None, unique_id=None, extra_meta=None):
+    if args.disable_metadata:
+        return None
+
+    meta = {}
+    if prompt is not None:
+        try:
+            meta["prompt"] = json.dumps(prompt)
+        except Exception:
+            pass
+    if extra_pnginfo is not None:
+        for k, v in extra_pnginfo.items():
+            try:
+                meta[k] = json.dumps(v)
+            except Exception:
+                pass
+    if isinstance(extra_meta, dict):
+        for k, v in extra_meta.items():
+            try:
+                meta[str(k)] = json.dumps(v)
+            except Exception:
+                pass
+    _attach_source_ksampler_metadata(meta, prompt, unique_id)
+    return meta
+
+
+def _save_i2v_latent_bundle(
+    samples,
+    positive,
+    negative,
+    filename_prefix="I2V",
+    prompt=None,
+    extra_pnginfo=None,
+    unique_id=None,
+    sidecar_extra=None,
+):
+    latents_dir = os.path.join(folder_paths.get_input_directory(), "latents")
+    os.makedirs(latents_dir, exist_ok=True)
+
+    full_output_folder, filename, counter, _subfolder, _filename_prefix = folder_paths.get_save_image_path(
+        filename_prefix, latents_dir
+    )
+
+    extra_meta = sidecar_extra if isinstance(sidecar_extra, dict) else None
+    meta = _build_latent_metadata(
+        prompt=prompt,
+        extra_pnginfo=extra_pnginfo,
+        unique_id=unique_id,
+        extra_meta=extra_meta,
+    )
+
+    latent_path = os.path.join(full_output_folder, f"{filename}_{counter:05}_.latent")
+    payload = {
+        "latent_tensor": samples["samples"].contiguous(),
+        "latent_format_version_0": torch.tensor([]),
+    }
+    comfy.utils.save_torch_file(payload, latent_path, metadata=meta)
+
+    sidecar = {"positive": positive, "negative": negative}
+    if isinstance(sidecar_extra, dict):
+        sidecar.update(sidecar_extra)
+    torch.save(sidecar, latent_path.replace(".latent", ".cond.pt"))
+    return latent_path
+
+
+def _load_i2v_conditioning_sidecar(latent_path):
+    cond_path = latent_path.replace(".latent", ".cond.pt")
+    if not os.path.exists(cond_path):
+        return [], [], {}
+
+    try:
+        data = torch.load(cond_path, map_location="cpu")
+    except Exception:
+        return [], [], {}
+
+    if not isinstance(data, dict):
+        return [], [], {}
+
+    return data.get("positive", []), data.get("negative", []), data
+
+
+def _coerce_trim_latent(value, default=0):
+    try:
+        if isinstance(value, str):
+            parsed = _safe_json_loads(value)
+            value = parsed if parsed is not None else value
+        return int(value)
+    except Exception:
+        return int(default)
 
 
 def _extract_prompt_text_from_ksampler(graph: Dict[str, Any], ks_node: Dict[str, Any]) -> Tuple[str, str]:
@@ -1267,6 +1368,129 @@ class LoadLatents_FromFolder_I2V_MXD(LoadLatents_FromFolder_WithParams):
             filename_prefixes,
         )
 
+class LoadLatent_VACE22_MXD(LoadLatent_I2V_MXD):
+    """
+    I2V loader plus the VACE 2.2 trim_latent value saved by Save Latent Vace 2.2.
+    """
+    TITLE = "Load Latent Vace 2.2"
+    CATEGORY = "MXD/Latents (VACE 2.2)"
+
+    RETURN_TYPES = (
+        "FLOAT",
+        "CONDITIONING",
+        "CONDITIONING",
+        "LATENT",
+        "INT",
+        "FLOAT",
+        "STRING",
+        "STRING",
+        "INT",
+        "STRING",
+        "INT",
+    )
+    RETURN_NAMES = (
+        "shift",
+        "positive",
+        "negative",
+        "samples",
+        "steps",
+        "cfg",
+        "sampler_name",
+        "scheduler",
+        "end_at_step",
+        "filename_prefix",
+        "trim_latent",
+    )
+
+    @classmethod
+    def INPUT_TYPES(s):
+        inputs = LoadLatent_I2V_MXD.INPUT_TYPES.__func__(s)
+        sampler_type = s.RETURN_TYPES[6]
+        scheduler_type = s.RETURN_TYPES[7]
+        s.RETURN_TYPES = (
+            "FLOAT", "CONDITIONING", "CONDITIONING", "LATENT",
+            "INT", "FLOAT", sampler_type, scheduler_type,
+            "INT", "STRING", "INT",
+        )
+        return inputs
+
+    def load(self, latent):
+        base_tuple = super().load(latent)
+        latent_ref = latent if str(latent).startswith("latents/") else f"latents/{latent}"
+        latent_path = folder_paths.get_annotated_filepath(latent_ref)
+        _pos, _neg, sidecar = _load_i2v_conditioning_sidecar(latent_path)
+        _sample_dict, meta, _keys = _load_latent_file(latent_path)
+        trim_latent = _coerce_trim_latent(sidecar.get("trim_latent", meta.get("trim_latent", 0)))
+        return (*base_tuple, trim_latent)
+
+
+class LoadLatents_FromFolder_VACE22_MXD(LoadLatents_FromFolder_I2V_MXD):
+    """
+    Batch I2V loader plus a trim_latent list aligned with each returned latent slice.
+    """
+    TITLE = "Load Latents (Folder, Vace 2.2)"
+    CATEGORY = "MXD/Latents (VACE 2.2)"
+    FUNCTION = "load_batch_vace22"
+
+    RETURN_TYPES = (
+        "FLOAT",
+        "CONDITIONING",
+        "CONDITIONING",
+        "LATENT",
+        "INT",
+        "FLOAT",
+        "STRING",
+        "STRING",
+        "INT",
+        "STRING",
+        "INT",
+    )
+    RETURN_NAMES = (
+        "shift",
+        "positive",
+        "negative",
+        "samples",
+        "steps",
+        "cfg",
+        "sampler_name",
+        "scheduler",
+        "end_at_step",
+        "filename_prefix",
+        "trim_latent",
+    )
+    OUTPUT_IS_LIST = (True,) * 11
+
+    @classmethod
+    def INPUT_TYPES(s):
+        inputs = LoadLatents_FromFolder_I2V_MXD.INPUT_TYPES.__func__(s)
+        sampler_type = s.RETURN_TYPES[6]
+        scheduler_type = s.RETURN_TYPES[7]
+        s.RETURN_TYPES = (
+            "FLOAT", "CONDITIONING", "CONDITIONING", "LATENT",
+            "INT", "FLOAT", sampler_type, scheduler_type,
+            "INT", "STRING", "INT",
+        )
+        return inputs
+
+    def load_batch_vace22(self, subfolder):
+        base_tuple = super().load_batch_i2v(subfolder)
+
+        latents_root = os.path.join(folder_paths.get_input_directory(), "latents")
+        base = os.path.join(latents_root, subfolder) if subfolder else latents_root
+        files = glob.glob(os.path.join(base, "**", "*.latent"), recursive=True)
+        files = _sort_paths_newest_first(files)
+
+        trims = []
+        for path in files:
+            sample_dict, meta, _keys = _load_latent_file(path)
+            _pos, _neg, sidecar = _load_i2v_conditioning_sidecar(path)
+            trim_latent = _coerce_trim_latent(sidecar.get("trim_latent", meta.get("trim_latent", 0)))
+            t = sample_dict["samples"]
+            slice_count = int(t.size(0)) if isinstance(t, torch.Tensor) and t.dim() >= 4 and t.size(0) > 1 else 1
+            trims.extend([trim_latent] * slice_count)
+
+        return (*base_tuple, trims)
+
 # ---------- Empty latent image generator (for video nodes) ----------
 class Wan2_2EmptyLatentImageMXD:
     """
@@ -1348,6 +1572,7 @@ class wan22EmptyHunyuanLatentVideoMXD:
     RESOLUTIONS = {
         "— 720p —": None,
         "Widescreen (16:9) 1280×720": (1280, 720),
+        "Square (1:1) 1024×1024": (1024, 1024),
 
         "— 480p —": None,
         "Widescreen (16:9) 832×480": (832, 480),
@@ -1462,9 +1687,10 @@ if HAVE_COMFY_API:
             return io.NodeOutput(positive, negative, out_latent)
 
 # ---- Canonical WAN 2.2 buckets ----
-BUCKETS_480 = [(832,480), (480,832), (624,624)]   # 16:9, 9:16, 1:1
-BUCKETS_720 = [(1280,720), (720,1280)]            # 16:9, 9:16
-SQUARE_TOL  = 0.03  # ±3% aspect-ratio tolerance counts as "square-ish"
+BUCKETS_480 = [(832,480), (480,832), (624,624)]      # 16:9, 9:16, 1:1
+BUCKETS_720 = [(1280,720), (720,1280), (1024,1024)]  # 16:9, 9:16, 1:1
+SQUARE_TOL  = 0.03  # exact-ish square passthrough tolerance
+AUTO_SQUARE_MAX_AR = 1.25  # Auto may crop to square when the source is within 25% of 1:1.
 
 def _ar(w, h): 
     return w / max(1, h)
@@ -1485,6 +1711,32 @@ def _ceil16(x):
 def _is_squareish(w, h, tol=SQUARE_TOL):
     r = _ar(w, h)
     return abs(r - 1.0) <= tol
+
+def _is_auto_square_candidate(w, h):
+    r = _ar(w, h)
+    return max(r, 1.0 / max(r, 1e-9)) <= AUTO_SQUARE_MAX_AR
+
+def _wan22_tier_from_area(iw, ih):
+    area = iw * ih
+    area_480 = 832 * 480
+    area_720 = 1280 * 720
+    return "480p" if abs(area - area_480) / area_480 <= abs(area - area_720) / area_720 else "720p"
+
+def _wan22_square_bucket(tier, iw=None, ih=None):
+    if tier == "720p":
+        return (1024, 1024)
+    if tier == "480p":
+        return (624, 624)
+    return (1024, 1024) if _wan22_tier_from_area(iw, ih) == "720p" else (624, 624)
+
+def _wan22_oriented_bucket(tier, orientation, iw=None, ih=None):
+    if tier == "Auto":
+        tier = _wan22_tier_from_area(iw, ih)
+    if orientation == "Tall":
+        return (480, 832) if tier == "480p" else (720, 1280)
+    if orientation == "Wide":
+        return (832, 480) if tier == "480p" else (1280, 720)
+    return _wan22_square_bucket(tier, iw, ih)
 
 def _closest_bucket(img_w, img_h, bucket_list, cover=False):
     """
@@ -1578,22 +1830,26 @@ def _resize_to_explicit_resolution(img, out_w, out_h, match_mode="crop_to_match"
 _WAN22_VALID_RES = {
     (832, 480), (480, 832),
     (1280, 720), (720, 1280),
-    (624, 624), (720, 720),
+    (624, 624), (1024, 1024),
 }
 
 def _wan22_is_valid_dim(w, h):
     return (w, h) in _WAN22_VALID_RES
 
 
-def _wan22_pick_bucket(iw, ih, tier, crop_to_fit):
+def _wan22_pick_bucket(iw, ih, tier, crop_to_fit, aspect_mode="Auto"):
+    if tier == "Safe Auto":
+        tier = "Auto"
+
+    if aspect_mode in ("Tall", "Wide", "Square"):
+        return _wan22_oriented_bucket(tier, aspect_mode, iw, ih)
+
     is_squareish = _is_squareish(iw, ih)
     is_landscape = iw >= ih
 
     # --- Square handling ---
-    if is_squareish:
-        if tier == "720p":
-            return (720, 720)
-        return (624, 624)
+    if is_squareish or (crop_to_fit and _is_auto_square_candidate(iw, ih)):
+        return _wan22_square_bucket(tier, iw, ih)
 
     # --- Explicit tiers ---
     if tier == "480p":
@@ -1615,7 +1871,7 @@ def _wan22_pick_bucket(iw, ih, tier, crop_to_fit):
     return _closest_bucket(iw, ih, buckets_480 if scale_to_480 <= scale_to_720 else buckets_720, cover=crop_to_fit)
 
 
-def _wan22_scale_image_core(image, tier="Auto", crop_to_fit=False):
+def _wan22_scale_image_core(image, tier="Auto", crop_to_fit=False, aspect_mode="Auto"):
     """
     Shared WAN 2.2 scaler core.
     Returns (scaled_image, out_w, out_h, did_passthrough).
@@ -1639,7 +1895,7 @@ def _wan22_scale_image_core(image, tier="Auto", crop_to_fit=False):
                 "WAN 2.2 works best around:\n"
                 "  - 480p tier ~= 832x480 (or 480x832)\n"
                 "  - 720p tier ~= 1280x720 (or 720x1280)\n"
-                "  - Squares: 624x624 or 720x720\n\n"
+                "  - Squares: 624x624 or 1024x1024\n\n"
                 "Please use a source closer to 480p/720p, or first process it "
                 "through your WAN 2.2 workflow. This ensures extend runs without mismatch."
             )
@@ -1647,12 +1903,7 @@ def _wan22_scale_image_core(image, tier="Auto", crop_to_fit=False):
         tier = "Auto"
 
     # --- Normal path (Auto / 480p / 720p) ---
-    bw, bh = _wan22_pick_bucket(iw, ih, tier, crop_to_fit)
-    is_squareish = _is_squareish(iw, ih)
-
-    if is_squareish:
-        crop_to_fit = False
-
+    bw, bh = _wan22_pick_bucket(iw, ih, tier, crop_to_fit, aspect_mode=aspect_mode)
     if crop_to_fit:
         bw, bh = _safe_hw(_ceil16(bw), _ceil16(bh))
         out = _resize_then_center_crop(image, bw, bh)
@@ -1733,7 +1984,7 @@ class WAN22_I2V_Image_Scaler_MXD:
     - Crop (no pad): resize-to-cover then center-crop to exact target.
     - Square handling:
         * Auto & 480p: ~square → 624×624
-        * 720p: ~square → 720×720
+        * 720p: ~square -> 1024x1024
     - “Safe Auto”:
         * If input is already a valid WAN 2.2 bucket, passthrough.
         * If input is far outside 480p–720p range, error early.
@@ -1757,6 +2008,10 @@ class WAN22_I2V_Image_Scaler_MXD:
                     "label_on": "Perfect Fit (Crops Edges)",
                     "label_off": "Closest Fit (No Crop)"
                 }),
+                "aspect_mode": (["Auto", "Tall", "Wide", "Square"], {
+                    "default": "Auto",
+                    "tooltip": "Auto picks wide/tall/square from the source. Use Square/Tall/Wide to force the target bucket shape."
+                }),
             }
         }
 
@@ -1770,7 +2025,7 @@ class WAN22_I2V_Image_Scaler_MXD:
         # --- Square handling ---
         if is_squareish:
             if tier == "720p":
-                return (720, 720)
+                return (1024, 1024)
             else:
                 return (624, 624)
 
@@ -1796,10 +2051,15 @@ class WAN22_I2V_Image_Scaler_MXD:
     # -----------------------------
     # Main function
     # -----------------------------
-    def scale(self, image, tier="Auto", crop_to_fit=False):
+    def scale(self, image, tier="Auto", crop_to_fit=False, aspect_mode="Auto"):
         # Keep legacy "Safe Auto" values from old workflows working, but expose only one Auto in UI.
         internal_tier = "Safe Auto" if tier == "Auto" else tier
-        out, _, _, _ = _wan22_scale_image_core(image, tier=internal_tier, crop_to_fit=crop_to_fit)
+        out, _, _, _ = _wan22_scale_image_core(
+            image,
+            tier=internal_tier,
+            crop_to_fit=crop_to_fit,
+            aspect_mode=aspect_mode,
+        )
         return (out,)
 
         _, ih, iw, _ = image.shape
@@ -1821,7 +2081,7 @@ class WAN22_I2V_Image_Scaler_MXD:
                     "WAN 2.2 works best around:\n"
                     "  • 480p tier ≈ 832×480 (or 480×832)\n"
                     "  • 720p tier ≈ 1280×720 (or 720×1280)\n"
-                    "  • Squares: 624×624 or 720×720\n\n"
+                    "  • Squares: 624×624 or 1024×1024\n\n"
                     "Please use a source closer to 480p/720p, or first process it "
                     "through your WAN 2.2 workflow. This ensures extend runs without mismatch."
                 )
@@ -1891,7 +2151,7 @@ class WAN22_I2V_Match_Resolution_MXD:
                 "Valid WAN 2.2 buckets are:\n"
                 "  - 832x480 / 480x832\n"
                 "  - 1280x720 / 720x1280\n"
-                "  - 624x624 / 720x720\n\n"
+                "  - 624x624 / 1024x1024\n\n"
                 "Recommended workflow:\n"
                 "  1. Scale the first image with 'Image Scaler Wan 2.2 I2V MXD'\n"
                 "  2. Use this node to match the second image to the scaled first image"
@@ -2127,13 +2387,13 @@ if HAVE_COMFY_API:
         """
         Prepare a source video for iterative WAN 2.2 extension:
         - scale entire video using WAN bucket logic
-        - output start/end frames from the full scaled video
+        - output the scaled frame batch directly
         - keep default workflow simple for common use
         """
         CATEGORY = "MXD/video"
         FUNCTION = "prepare"
-        RETURN_TYPES = ("VIDEO", "IMAGE", "IMAGE", "INT", "INT", "FLOAT")
-        RETURN_NAMES = ("scaled_video", "start_image", "end_image", "width", "height", "fps")
+        RETURN_TYPES = ("VIDEO", "IMAGE", "FLOAT")
+        RETURN_NAMES = ("scaled_video", "images", "fps")
 
         @classmethod
         def INPUT_TYPES(cls):
@@ -2146,21 +2406,27 @@ if HAVE_COMFY_API:
                         "label_on": "Perfect Fit (Crops Edges)",
                         "label_off": "Closest Fit (No Crop)"
                     }),
-                    "fps_mode": (["none", "force"], {
-                        "default": "none",
-                        "tooltip": "none = keep source fps. force = resample frames (drop/duplicate) and set exact target fps."
+                    "force_fps": ("BOOLEAN", {
+                        "default": False,
+                        "label_on": "Force FPS",
+                        "label_off": "Keep Source FPS",
+                        "tooltip": "When enabled, resample frames (drop/duplicate) and set exact target fps."
                     }),
-                    "target_fps": ("FLOAT", {
-                        "default": 16.0,
-                        "min": 0.001,
-                        "max": 1000.0,
-                        "step": 0.01,
-                        "tooltip": "Used when fps_mode=force. Output video fps will be set exactly to this value."
+                    "target_fps": ("INT", {
+                        "default": 16,
+                        "min": 1,
+                        "max": 1000,
+                        "step": 1,
+                        "tooltip": "Used when Force FPS is enabled. Output video fps will be set exactly to this value."
+                    }),
+                    "aspect_mode": (["Auto", "Tall", "Wide", "Square"], {
+                        "default": "Auto",
+                        "tooltip": "Auto picks wide/tall/square from the source. Use Square/Tall/Wide to force the target bucket shape."
                     }),
                 },
             }
 
-        def prepare(self, video, tier="Auto", crop_to_fit=True, fps_mode="none", target_fps=16.0):
+        def prepare(self, video, tier="Auto", crop_to_fit=True, force_fps=False, target_fps=16, aspect_mode="Auto"):
             comp = video.get_components()
             if isinstance(comp.images, list):
                 if len(comp.images) == 0:
@@ -2179,7 +2445,7 @@ if HAVE_COMFY_API:
                 raise ValueError("[WAN22_I2V_Video_Prep_MXD] Input video has zero frames.")
 
             out_frame_rate = float(comp.frame_rate) if comp.frame_rate is not None else None
-            if fps_mode == "force":
+            if force_fps:
                 frames, out_frame_rate, _ = _resample_video_frames_to_fps(
                     frames, comp.frame_rate, target_fps
                 )
@@ -2187,12 +2453,12 @@ if HAVE_COMFY_API:
             # "Auto" in video prep uses the safer extend-friendly behavior.
             # Keep accepting legacy "Safe Auto" values from older saved workflows.
             internal_tier = "Safe Auto" if tier == "Auto" else tier
-            scaled_frames, out_w, out_h, _ = _wan22_scale_image_core(
-                frames, tier=internal_tier, crop_to_fit=crop_to_fit
+            scaled_frames, _, _, _ = _wan22_scale_image_core(
+                frames,
+                tier=internal_tier,
+                crop_to_fit=crop_to_fit,
+                aspect_mode=aspect_mode,
             )
-
-            start_image = scaled_frames[0:1].clone()
-            end_image = scaled_frames[-1:].clone()
 
             scaled_video = VideoFromComponents(
                 VideoComponents(
@@ -2203,92 +2469,7 @@ if HAVE_COMFY_API:
             )
 
             fps = float(out_frame_rate) if out_frame_rate is not None else 0.0
-            return (scaled_video, start_image, end_image, out_w, out_h, fps)
-
-    class WAN22_I2V_Video_Prep_Advanced_MXD:
-        """
-        Advanced variant of WAN22_I2V_Video_Prep_MXD with frame-selection controls.
-        """
-        CATEGORY = "MXD/video"
-        FUNCTION = "prepare"
-        RETURN_TYPES = ("VIDEO", "IMAGE", "IMAGE", "IMAGE", "INT", "INT", "FLOAT")
-        RETURN_NAMES = ("scaled_video", "selected_frames", "start_image", "end_image", "width", "height", "fps")
-
-        @classmethod
-        def INPUT_TYPES(cls):
-            return {
-                "required": {
-                    "video": ("VIDEO",),
-                    "tier": (["Auto", "480p", "720p"], {"default": "Auto"}),
-                    "crop_to_fit": ("BOOLEAN", {
-                        "default": True,
-                        "label_on": "Perfect Fit (Crops Edges)",
-                        "label_off": "Closest Fit (No Crop)"
-                    }),
-                    "fps_mode": (["none", "force"], {
-                        "default": "none",
-                        "tooltip": "none = keep source fps. force = resample frames (drop/duplicate) and set exact target fps."
-                    }),
-                    "target_fps": ("FLOAT", {
-                        "default": 16.0,
-                        "min": 0.001,
-                        "max": 1000.0,
-                        "step": 0.01,
-                        "tooltip": "Used when fps_mode=force. Output video fps will be set exactly to this value."
-                    }),
-                    "mode": (["start", "end"], {"default": "end"}),
-                    "count": ("INT", {"default": 1, "min": 1, "max": 10000}),
-                    "offset": ("INT", {"default": 1, "min": 1, "max": 10000}),
-                },
-            }
-
-        def prepare(self, video, tier="Auto", crop_to_fit=True, fps_mode="none", target_fps=16.0, mode="end", count=1, offset=1):
-            comp = video.get_components()
-            if isinstance(comp.images, list):
-                if len(comp.images) == 0:
-                    raise ValueError("[WAN22_I2V_Video_Prep_Advanced_MXD] Input video has zero frames.")
-                frames = torch.stack(comp.images)
-            else:
-                frames = comp.images
-
-            if frames is None:
-                raise ValueError("[WAN22_I2V_Video_Prep_Advanced_MXD] Input video has no frames.")
-            if frames.ndim == 3:
-                frames = frames.unsqueeze(0)
-            if frames.ndim != 4:
-                raise ValueError(f"[WAN22_I2V_Video_Prep_Advanced_MXD] Unexpected frame tensor shape: {tuple(frames.shape)}")
-            if frames.shape[0] <= 0:
-                raise ValueError("[WAN22_I2V_Video_Prep_Advanced_MXD] Input video has zero frames.")
-
-            out_frame_rate = float(comp.frame_rate) if comp.frame_rate is not None else None
-            if fps_mode == "force":
-                frames, out_frame_rate, _ = _resample_video_frames_to_fps(
-                    frames, comp.frame_rate, target_fps
-                )
-
-            # "Auto" in video prep uses the safer extend-friendly behavior.
-            # Keep accepting legacy "Safe Auto" values from older saved workflows.
-            internal_tier = "Safe Auto" if tier == "Auto" else tier
-            scaled_frames, out_w, out_h, _ = _wan22_scale_image_core(
-                frames, tier=internal_tier, crop_to_fit=crop_to_fit
-            )
-
-            selected_frames = _select_frames_start_end(
-                scaled_frames, count=count, offset=offset, mode=mode
-            )
-            start_image = selected_frames[0:1].clone()
-            end_image = selected_frames[-1:].clone()
-
-            scaled_video = VideoFromComponents(
-                VideoComponents(
-                    images=scaled_frames,
-                    audio=comp.audio,
-                    frame_rate=out_frame_rate,
-                )
-            )
-
-            fps = float(out_frame_rate) if out_frame_rate is not None else 0.0
-            return (scaled_video, selected_frames, start_image, end_image, out_w, out_h, fps)
+            return (scaled_video, scaled_frames, fps)
     
     # ---------- Load Video MXD (video-only picker with refresh) ----------
     class LoadVideoMXD:
@@ -2607,30 +2788,32 @@ if HAVE_COMFY_API:
 # ============================================================
 # LTX Video Image Scaler MXD
 # ============================================================
-# LTX Video requires all dimensions to be multiples of 32.
-# Tiers: 480p / 768 / 1024  (or Auto to pick nearest by area)
-# Fit (no pad):  proportional resize <= target, /32 aligned.
+# Official LTX-2.3 rules (Lightricks model card + example workflows):
+#   - Width & height must be divisible by 32; frame count must be 8n+1.
+#   - The distilled two-stage workflow generates Stage 1 low-res, then the
+#     ltx-2.3-spatial-upscaler-x2 doubles it (exactly 2x) for Stage 2.
+#   - The one published two-stage resolution is Stage 1 960x544 -> 1920x1088.
+#
+# Tiers below are FINAL (Stage 2) sizes; Stage 1 is exactly half. Finals are
+# kept /64 so Stage 1 stays /32 (the latent constraint). Only the 1080p 16:9
+# row is officially published by Lightricks; the portrait/square rows and the
+# 720p/576p tiers are /32-aligned siblings at the same pixel budget.
+#
+# Buckets (FINAL size, all /64) -> Stage 1 (half, all /32):
+#   1080p: 1920x1088 / 1088x1920 / 1408x1408  (Stage 1: 960x544 / 544x960 / 704x704)
+#   720p:  1280x704  / 704x1280  / 960x960     (Stage 1: 640x352 / 352x640 / 480x480)
+#   576p:  1024x576  / 576x1024  / 768x768     (Stage 1: 512x288 / 288x512 / 384x384)
+#
+# Fit (no pad):  proportional resize <= target, /64 aligned.
 # Crop (no pad): resize-to-cover then center-crop to exact bucket.
 # Square images map to each tier's square bucket.
-# Buckets (all /32):
-#   480p:  832x480  /  480x832  /  512x512
-#   768:   1280x768 /  768x1280 /  768x768
-#   1024:  1792x1024 / 1024x1792 / 1024x1024
 # ============================================================
 
 _LTX_BUCKETS = {
-    "480p": {"landscape": (832, 480),   "portrait": (480, 832),   "square": (512, 512)},
-    "768":  {"landscape": (1280, 768),  "portrait": (768, 1280),  "square": (768, 768)},
-    "1024": {"landscape": (1792, 1024), "portrait": (1024, 1792), "square": (1024, 1024)},
+    "1080p": {"landscape": (1920, 1088), "portrait": (1088, 1920), "square": (1408, 1408)},
+    "720p":  {"landscape": (1280, 704),  "portrait": (704, 1280),  "square": (960, 960)},
+    "576p":  {"landscape": (1024, 576),  "portrait": (576, 1024),  "square": (768, 768)},
 }
-
-_LTX_TIER_AREAS = {
-    "480p": 832 * 480,    # 399,360
-    "768":  1280 * 768,   # 983,040
-    "1024": 1792 * 1024,  # 1,835,008
-}
-
-_LTX_VALID_RES = {b for t in _LTX_BUCKETS.values() for b in t.values()}
 
 
 def _ceil32(x):
@@ -2643,16 +2826,22 @@ def _floor32(x):
     return max(32, x)
 
 
-def _ltx_is_valid_res(w, h):
-    return (w, h) in _LTX_VALID_RES
+def _floor64(x):
+    x = int(x) // 64 * 64
+    return max(64, x)
+
+
+def _ltx_stage1_dims(final_w, final_h):
+    """Return Stage 1 dimensions that upscale exactly to the final size."""
+    return max(32, int(final_w) // 2), max(32, int(final_h) // 2)
 
 
 def _ltx_resize_fit_inside(img, out_w, out_h):
-    """Resize to fit inside (out_w, out_h), output /32 aligned on both sides."""
+    """Resize to fit inside (out_w, out_h), output /64 aligned on both sides."""
     _, ih, iw, _ = img.shape
     s = min(out_w / iw, out_h / ih)
-    tw = _floor32(iw * s)
-    th = _floor32(ih * s)
+    tw = _floor64(iw * s)
+    th = _floor64(ih * s)
     tw = max(32, min(tw, nodes.MAX_RESOLUTION))
     th = max(32, min(th, nodes.MAX_RESOLUTION))
     resized = comfy.utils.common_upscale(img.movedim(-1, 1), tw, th, "bilinear", "center").movedim(1, -1)
@@ -2671,12 +2860,6 @@ def _ltx_resize_then_center_crop(img, out_w, out_h):
     return tmp[:, y0:y0+out_h, x0:x0+out_w, :]
 
 
-def _ltx_pick_tier_auto(iw, ih):
-    """Pick the LTX tier whose reference area is closest to the input area."""
-    area = iw * ih
-    return min(_LTX_TIER_AREAS, key=lambda t: abs(area - _LTX_TIER_AREAS[t]))
-
-
 def _ltx_pick_bucket(iw, ih, tier):
     """Pick the landscape / portrait / square bucket for the given tier."""
     tier_map = _LTX_BUCKETS[tier]
@@ -2685,34 +2868,12 @@ def _ltx_pick_bucket(iw, ih, tier):
     return tier_map["landscape"] if iw >= ih else tier_map["portrait"]
 
 
-def _ltx_scale_image_core(image, tier="Auto", crop_to_fit=True):
+def _ltx_scale_image_core(image, tier="1080p", crop_to_fit=True):
     """
-    Core LTX scaler. Returns (scaled_image, out_w, out_h, passthrough).
-    passthrough=True only when Safe Auto detects an already-valid resolution.
+    Core LTX scaler. Returns (scaled_image, final_w, final_h, stage1_w, stage1_h).
+    'tier' is the FINAL (Stage 2) size budget; Stage 1 is exactly half.
     """
     _, ih, iw, _ = image.shape
-
-    if tier == "Safe Auto":
-        if _ltx_is_valid_res(iw, ih):
-            return image, iw, ih, True
-        area = iw * ih
-        min_area = int(_LTX_TIER_AREAS["480p"] * 0.5)
-        max_area = int(_LTX_TIER_AREAS["1024"] * 1.8)
-        if area < min_area or area > max_area:
-            size_label = "small" if area < min_area else "large"
-            raise ValueError(
-                f"[LTX_Image_Scaler_MXD] Input {iw}x{ih} is too {size_label} for LTX Video buckets.\n"
-                "LTX Video works best around:\n"
-                "  - 480p tier:  832x480 / 480x832 / 512x512\n"
-                "  - 768 tier:   1280x768 / 768x1280 / 768x768\n"
-                "  - 1024 tier:  1792x1024 / 1024x1792 / 1024x1024\n\n"
-                "Use a source image closer to one of these tiers, or process it "
-                "through your LTX workflow first."
-            )
-        tier = "Auto"
-
-    if tier == "Auto":
-        tier = _ltx_pick_tier_auto(iw, ih)
 
     bw, bh = _ltx_pick_bucket(iw, ih, tier)
 
@@ -2724,25 +2885,32 @@ def _ltx_scale_image_core(image, tier="Auto", crop_to_fit=True):
     else:
         out, bw, bh = _ltx_resize_fit_inside(image, bw, bh)
 
-    return out, int(out.shape[2]), int(out.shape[1]), False
+    final_w = int(out.shape[2])
+    final_h = int(out.shape[1])
+    stage1_w, stage1_h = _ltx_stage1_dims(final_w, final_h)
+    return out, final_w, final_h, stage1_w, stage1_h
 
 
 class LTX_Image_Scaler_MXD:
     """
-    MXD Image Scaler for LTX Video — all outputs are multiples of 32.
+    MXD Image Scaler for LTX Video (distilled two-stage workflow).
 
-    Tiers:
-      Auto  — picks the tier whose area is closest to the input.
-      480p  — targets 832x480 / 480x832 / 512x512.
-      768   — targets 1280x768 / 768x1280 / 768x768.
-      1024  — targets 1792x1024 / 1024x1792 / 1024x1024.
+    'tier' is the FINAL (Stage 2) size; Stage 1 is exactly half. Finals are /64
+    so Stage 1 stays /32 (the LTX latent constraint). Wire stage1_width /
+    stage1_height into the empty latent for the low-res pass; the spatial
+    upscaler-x2 then doubles it back to the final size.
+
+    Tiers (final / Stage 1):
+      1080p  1920x1088 (official 16:9) / 1088x1920 / 1408x1408  ->  half
+      720p   1280x704 / 704x1280 / 960x960                      ->  half
+      576p   1024x576 / 576x1024 / 768x768                      ->  half
 
     Modes:
-      Perfect Fit (Crops Edges)  resize-to-cover + center-crop to exact bucket size.
-      Closest Fit (No Crop)      proportional resize, /32-aligned; may be smaller than bucket.
+      Perfect Fit (Crops Edges)  resize-to-cover + center-crop to exact bucket.
+      Closest Fit (No Crop)      proportional resize, /64-aligned; may be smaller.
 
-    Square images (aspect ratio within +-3% of 1:1) map to the tier's square bucket.
-    Returns image + width + height so downstream nodes can read the final dims directly.
+    Square images (within +-3% of 1:1) map to the tier's square bucket.
+    Outputs the scaled image at final size plus the Stage 1 dimensions.
     """
 
     TITLE = "LTX Video Image Scaler MXD"
@@ -2756,19 +2924,117 @@ class LTX_Image_Scaler_MXD:
         return {
             "required": {
                 "image": ("IMAGE",),
-                "tier": (["Auto", "480p", "768", "1024"], {"default": "Auto"}),
+                "tier": (["1080p", "720p", "576p"], {"default": "1080p"}),
                 "crop_to_fit": ("BOOLEAN", {
                     "default": True,
-                    "label_on": "Perfect Fit (Crops Edges)",
+                    "label_on": "Crop Edges",
                     "label_off": "Closest Fit (No Crop)",
                 }),
             }
         }
 
-    def scale(self, image, tier="Auto", crop_to_fit=True):
+    def scale(self, image, tier="1080p", crop_to_fit=True):
         image = _validate_image_batch_4d(image, "LTX_Image_Scaler_MXD", "image")
-        out, ow, oh, _ = _ltx_scale_image_core(image, tier=tier, crop_to_fit=crop_to_fit)
-        return (out, ow, oh)
+        out, _final_w, _final_h, stage1_w, stage1_h = _ltx_scale_image_core(
+            image, tier=tier, crop_to_fit=crop_to_fit
+        )
+        return (out, stage1_w, stage1_h)
+
+
+class PadImageForOutpaintingMXD:
+    SEARCH_ALIASES = ["extend canvas", "expand image", "outpaint pad"]
+
+    RETURN_TYPES = ("IMAGE", "MASK")
+    FUNCTION = "expand_image"
+    CATEGORY = "image/transform"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "left": ("INT", {"default": 0, "min": 0, "max": nodes.MAX_RESOLUTION, "step": 2}),
+                "top": ("INT", {"default": 0, "min": 0, "max": nodes.MAX_RESOLUTION, "step": 2}),
+                "right": ("INT", {"default": 0, "min": 0, "max": nodes.MAX_RESOLUTION, "step": 2}),
+                "bottom": ("INT", {"default": 0, "min": 0, "max": nodes.MAX_RESOLUTION, "step": 2}),
+                "round_to": (["None", "2", "8", "16", "32", "64"], {"default": "16"}),
+            }
+        }
+
+    @staticmethod
+    def _nearest_multiple(value: int, multiple: int, padded: bool) -> int:
+        if multiple <= 1 or value % multiple == 0:
+            return value
+        lower = (value // multiple) * multiple
+        upper = lower + multiple
+        if lower <= 0:
+            return upper
+        if not padded:
+            return lower
+        return lower if value - lower <= upper - value else upper
+
+    @staticmethod
+    def _axis_plan(size: int, before: int, after: int, multiple: int) -> Tuple[int, int, int, int, int]:
+        target = size + before + after
+        if multiple > 1:
+            target = PadImageForOutpaintingMXD._nearest_multiple(target, multiple, before + after > 0)
+
+        delta = target - (size + before + after)
+        if delta < 0:
+            remove = -delta
+            from_after = min(after, remove)
+            after -= from_after
+            remove -= from_after
+            from_before = min(before, remove)
+            before -= from_before
+            remove -= from_before
+            crop_before = remove // 2
+            crop_after = remove - crop_before
+        else:
+            crop_before = 0
+            crop_after = 0
+            if before > 0 and after > 0:
+                add_before = delta // 2
+                before += add_before
+                after += delta - add_before
+            elif before > 0:
+                before += delta
+            else:
+                after += delta
+
+        final_size = size - crop_before - crop_after + before + after
+        if final_size <= 0:
+            raise ValueError("[PadImageForOutpaintingMXD] Rounding removed the full image on one axis.")
+        return before, after, crop_before, crop_after, final_size
+
+    def expand_image(self, image, left, top, right, bottom, round_to="16"):
+        image = _validate_image_batch_4d(image, "PadImageForOutpaintingMXD", "image")
+        batch, height, width, channels = image.size()
+        multiple = 1 if round_to == "None" else int(round_to)
+
+        left, right, crop_left, crop_right, final_width = self._axis_plan(width, left, right, multiple)
+        top, bottom, crop_top, crop_bottom, final_height = self._axis_plan(height, top, bottom, multiple)
+
+        cropped = image[:, crop_top:height - crop_bottom, crop_left:width - crop_right, :]
+        crop_height = cropped.shape[1]
+        crop_width = cropped.shape[2]
+
+        new_image = torch.full(
+            (batch, final_height, final_width, channels),
+            0.5,
+            dtype=image.dtype,
+            device=image.device,
+        )
+        new_image[:, top:top + crop_height, left:left + crop_width, :] = cropped
+
+        mask = torch.ones(
+            (final_height, final_width),
+            dtype=torch.float32,
+            device=image.device,
+        )
+        mask[top:top + crop_height, left:left + crop_width] = 0.0
+
+        return (new_image, mask.unsqueeze(0))
 
 
 # ---------- Node registration ----------
@@ -2781,19 +3047,22 @@ NODE_CLASS_MAPPINGS = {
     "SaveLatent_I2V_MXD": SaveLatent_I2V_MXD,
     "LoadLatent_I2V_MXD": LoadLatent_I2V_MXD,
     "LoadLatents_FromFolder_I2V_MXD": LoadLatents_FromFolder_I2V_MXD,
+    "SaveLatent_VACE22_MXD": SaveLatent_VACE22_MXD,
+    "LoadLatent_VACE22_MXD": LoadLatent_VACE22_MXD,
+    "LoadLatents_FromFolder_VACE22_MXD": LoadLatents_FromFolder_VACE22_MXD,
     "WAN22_I2V_Image_Scaler_MXD": WAN22_I2V_Image_Scaler_MXD,
     "LTX_Image_Scaler_MXD": LTX_Image_Scaler_MXD,
     "WAN22_I2V_Match_Resolution_MXD": WAN22_I2V_Match_Resolution_MXD,
     "Frames_Remove_From_Start_MXD": Frames_Remove_From_Start_MXD,
     "GroupVideoFramesMXD": GroupVideoFramesMXD,
     "Frames_Select_StartEnd_MXD": Frames_Select_StartEnd_MXD,
+    "PadImageForOutpaintingMXD": PadImageForOutpaintingMXD,
 }
 
 if HAVE_COMFY_API:
     NODE_CLASS_MAPPINGS.update({
         "Wan22ImageToVideoMXD": Wan22ImageToVideoMXD,
         "WAN22_I2V_Video_Prep_MXD": WAN22_I2V_Video_Prep_MXD,
-        "WAN22_I2V_Video_Prep_Advanced_MXD": WAN22_I2V_Video_Prep_Advanced_MXD,
         "CombineVideos_MXD": CombineVideos_MXD,
         "LoadVideoMXD": LoadVideoMXD,
         "SaveVideoMXD": SaveVideoMXD,
@@ -2810,19 +3079,22 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SaveLatent_I2V_MXD": "Save Latent I2V MXD",
     "LoadLatent_I2V_MXD": "Load Latent I2V MXD",
     "LoadLatents_FromFolder_I2V_MXD": "Load Latent Batch I2V MXD",
+    "SaveLatent_VACE22_MXD": "Save Latent Vace 2.2 MXD",
+    "LoadLatent_VACE22_MXD": "Load Latent Vace 2.2 MXD",
+    "LoadLatents_FromFolder_VACE22_MXD": "Load Latent Batch Vace 2.2 MXD",
     "WAN22_I2V_Image_Scaler_MXD": "Image Scaler Wan 2.2 I2V MXD",
     "LTX_Image_Scaler_MXD": "LTX Video Image Scaler MXD",
     "WAN22_I2V_Match_Resolution_MXD": "Match Resolution Wan 2.2 I2V MXD",
     "Frames_Remove_From_Start_MXD": "Remove Frames From Start MXD",
     "GroupVideoFramesMXD": "Group Video Frames MXD",
     "Frames_Select_StartEnd_MXD": "Select Frames MXD",
+    "PadImageForOutpaintingMXD": "Pad Image for Outpainting MXD",
 }
 
 if HAVE_COMFY_API:
     NODE_DISPLAY_NAME_MAPPINGS.update({
         "Wan22ImageToVideoMXD": "Wan 2.2 Image to Video MXD",
         "WAN22_I2V_Video_Prep_MXD": "WAN 2.2 Video Prep I2V MXD",
-        "WAN22_I2V_Video_Prep_Advanced_MXD": "WAN 2.2 Video Prep I2V MXD Advanced",
         "CombineVideos_MXD": "Combine Videos MXD",
         "LoadVideoMXD": "Load Video MXD",
         "SaveVideoMXD": "Save Video MXD",

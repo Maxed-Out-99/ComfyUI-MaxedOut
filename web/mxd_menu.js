@@ -2,7 +2,7 @@ import { generateId, wait } from "./mxd_shared_utils.js";
 import { createElement as $el, getClosestOrSelf, setAttributes } from "./mxd_utils_dom.js";
 class Menu {
     constructor(options) {
-        this.element = $el('menu.rgthree-menu');
+        this.element = $el('menu.mxd-menu');
         this.callbacks = new Map();
         this.handleWindowPointerDownBound = this.handleWindowPointerDown.bind(this);
         this.setOptions(options);
@@ -82,7 +82,7 @@ class Menu {
 }
 export class MenuButton {
     constructor(options) {
-        this.element = $el('button.rgthree-button[data-action="open-menu"]');
+        this.element = $el('button.mxd-button[data-action="open-menu"]');
         this.options = options;
         this.element.innerHTML = options.icon;
         this.menu = new Menu(options.options);

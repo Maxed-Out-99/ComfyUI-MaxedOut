@@ -162,7 +162,7 @@ function normalizeMenuCallbackValue(value) {
 export async function showLoraChooser(event, callback, parentMenu, loras) {
   const canvas = app.canvas;
   if (!loras) {
-    loras = ["None", ...(await mxdApi.getLoras().then((items) => items.map((l) => l.file)))];
+    loras = await mxdApi.getLoras().then((items) => items.map((l) => l.file));
   }
 
   ensureLoraChooserTreeStyles();
