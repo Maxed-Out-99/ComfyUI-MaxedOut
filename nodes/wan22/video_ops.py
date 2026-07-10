@@ -42,17 +42,14 @@ except Exception as _e:
     HAVE_COMFY_API = False
     print(f"[ComfyUI-MaxedOut] comfy_api not available in wan22.video_ops: {_e}")
 
-from server import PromptServer
 from aiohttp import web
 
 from .latent_io import _merge_prior_workflow_into_current
+from ..shared.routes import register_get_route
 
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".avi"}
 
-routes = PromptServer.instance.routes
 
-
-@routes.get("/mxd/videos/input")
 async def mxd_list_input_videos(request):
     """
     Return a JSON list of *video* files under the input folder (relative paths),
@@ -79,6 +76,9 @@ async def mxd_list_input_videos(request):
 
     files = [rel for _, rel in entries]
     return web.json_response(files)
+
+
+register_get_route("/mxd/videos/input", mxd_list_input_videos)
 
 
 def _select_frames_start_end(frames, count=1, offset=1, mode="end"):

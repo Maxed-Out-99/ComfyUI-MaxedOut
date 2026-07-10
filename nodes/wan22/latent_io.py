@@ -28,24 +28,11 @@ import comfy.utils
 from comfy.cli_args import args
 from nodes import KSamplerAdvanced
 
-from server import PromptServer
 from aiohttp import web
 
-routes = PromptServer.instance.routes
-
-
-def _sort_paths_newest_first(paths: List[str]) -> List[str]:
-    """Sort file paths by mtime desc (newest first), stable by normalized path."""
-    def _mtime(path: str) -> float:
-        try:
-            return os.path.getmtime(path)
-        except OSError:
-            return 0.0
-
-    return sorted(
-        paths,
-        key=lambda p: (-_mtime(p), p.replace("\\", "/").lower()),
-    )
+from ..shared.metadata import _safe_json_loads
+from ..shared.paths import _sort_paths_newest_first, _strip_counter
+from ..shared.routes import register_get_route
 
 
 def _sort_latent_options_by_folder(options: List[str], root: str = "") -> List[str]:
@@ -116,7 +103,6 @@ def _list_latent_subfolders(latents_root: str) -> List[str]:
     ]
 
 
-@routes.get("/mxd/latents/files")
 async def mxd_list_latent_files(request):
     """
     Fresh re-scan of input/latents for .latent files. Used by the run_folder
@@ -130,6 +116,9 @@ async def mxd_list_latent_files(request):
     options = [os.path.relpath(f, latents_root).replace(os.sep, "/") for f in files]
     options = _sort_latent_options_by_folder(options, latents_root)
     return web.json_response(options)
+
+
+register_get_route("/mxd/latents/files", mxd_list_latent_files)
 
 
 # ---------- SaveLatent (saves latent + conditioning + optional trim_latent) ----------
@@ -204,26 +193,6 @@ def _load_latent_file(latent_path: str) -> Tuple[Dict[str, torch.Tensor], Dict[s
             t = t * (1.0 / 0.18215)
 
     return {"samples": t}, meta, keys
-
-
-def _safe_json_loads(s: Union[str, bytes, None]) -> Optional[Dict[str, Any]]:
-    if s is None:
-        return None
-    if isinstance(s, bytes):
-        try:
-            s = s.decode("utf-8", "ignore")
-        except Exception:
-            return None
-    if not isinstance(s, str):
-        return None
-    try:
-        return json.loads(s)
-    except Exception:
-        # sometimes double-encoded in metadata
-        try:
-            return json.loads(json.loads(s))
-        except Exception:
-            return None
 
 
 def _workflow_node_bbox(nodes: List[Dict[str, Any]]) -> Optional[Tuple[float, float, float, float]]:
@@ -776,6 +745,130 @@ def _extract_params_from_prompt_json(
 
     return pos, neg, steps, cfg, sampler_name, scheduler, end_at_step
 
+def _coerce_enum(value, enum_values):
+    try:
+        return value if (enum_values and value in enum_values) else (enum_values[0] if enum_values else value)
+    except Exception:
+        return value
+
+
+def _extract_sd3_shift(meta: dict, prompt_json: dict | None) -> float:
+    """
+    Find SD3 'shift' in several places:
+    1) flat meta["shift"]
+    2) nested in prompt/workflow JSON:
+    - nodes[].{type|class_type} == "ModelSamplingSD3" -> inputs.shift or widgets_values[0]
+    - runtime-style prompt dict mapping IDs -> {..., class_type: "ModelSamplingSD3"}
+    Falls back to 5.0 if not found.
+    """
+    def try_float(x):
+        try:
+            return float(x)
+        except Exception:
+            return None
+
+    # 1) flat meta
+    if isinstance(meta, dict):
+        v = try_float(meta.get("shift"))
+        if v is not None:
+            return v
+
+    # parse any JSON-like strings present in meta
+    def safe_load(x):
+        try:
+            return _safe_json_loads(x) if isinstance(x, str) else x
+        except Exception:
+            return None
+
+    # Search helper over various JSON shapes
+    def search_container(obj):
+        # Direct dict containing shift
+        if isinstance(obj, dict):
+            if "shift" in obj:
+                v = try_float(obj.get("shift"))
+                if v is not None:
+                    return v
+
+            # Comfy "nodes": [ {...}, ... ]
+            nodes = obj.get("nodes")
+            if isinstance(nodes, list):
+                # take the last SD3 node (most recent in graph)
+                ms_nodes = [n for n in nodes if isinstance(n, dict) and (
+                    n.get("type") == "ModelSamplingSD3" or
+                    n.get("class_type") == "ModelSamplingSD3" or
+                    (isinstance(n.get("properties"), dict) and n["properties"].get("Node name for S&R") == "ModelSamplingSD3")
+                )]
+                if ms_nodes:
+                    nd = ms_nodes[-1]
+                    # Prefer explicit inputs.shift if present and literal
+                    inp = nd.get("inputs")
+                    if isinstance(inp, dict) and "shift" in inp:
+                        vv = inp["shift"]
+                        # ignore connection like [node_id, idx]
+                        if not isinstance(vv, (list, tuple)):
+                            v2 = try_float(vv)
+                            if v2 is not None:
+                                return v2
+                    # Fallback: first widget is shift for SD3 (as seen in your JSON)
+                    w = nd.get("widgets_values")
+                    if isinstance(w, list) and len(w) >= 1:
+                        v2 = try_float(w[0])
+                        if v2 is not None:
+                            return v2
+
+            # Runtime prompt map: {"42": {"class_type":"ModelSamplingSD3", "inputs":{...}, "widgets_values":[...]}, ...}
+            # Heuristic: values that are dicts with class_type keys
+            has_ct = [v for v in obj.values() if isinstance(v, dict) and "class_type" in v]
+            if has_ct:
+                for nd in has_ct:
+                    if nd.get("class_type") == "ModelSamplingSD3":
+                        inp = nd.get("inputs", {})
+                        if isinstance(inp, dict) and "shift" in inp:
+                            vv = inp["shift"]
+                            if not isinstance(vv, (list, tuple)):
+                                v2 = try_float(vv)
+                                if v2 is not None:
+                                    return v2
+                        w = nd.get("widgets_values")
+                        if isinstance(w, list) and len(w) >= 1:
+                            v2 = try_float(w[0])
+                            if v2 is not None:
+                                return v2
+
+        # Lists / nested
+        if isinstance(obj, list):
+            for it in obj:
+                v = search_container(it)
+                if v is not None:
+                    return v
+        return None
+
+    # 2) Look in provided prompt_json
+    v = search_container(prompt_json)
+    if v is not None:
+        return v
+
+    # Also look in common meta fields that can hold the full workflow/prompt
+    for key in ("workflow", "prompt", "extra_pnginfo"):
+        candidate = meta.get(key)
+        cand_obj = safe_load(candidate)
+        if isinstance(cand_obj, dict) or isinstance(cand_obj, list):
+            v = search_container(cand_obj)
+            if v is not None:
+                return v
+        # extra_pnginfo can nest "workflow"/"prompt" again
+        if isinstance(cand_obj, dict):
+            for subkey in ("workflow", "prompt"):
+                sub = safe_load(cand_obj.get(subkey))
+                if isinstance(sub, dict) or isinstance(sub, list):
+                    v = search_container(sub)
+                    if v is not None:
+                        return v
+
+    # default
+    return 5.0
+
+
 # ---------- Load one latent (conditioning + sampler params + optional trim_latent) ----------
 class LoadLatent_I2V_MXD:
     """
@@ -852,135 +945,6 @@ class LoadLatent_I2V_MXD:
             }
         }
 
-    def _coerce_enum(self, value, enum_values):
-        try:
-            return value if (enum_values and value in enum_values) else (enum_values[0] if enum_values else value)
-        except Exception:
-            return value
-
-    def _strip_counter(self, name: str) -> str:
-        # Only strip the trailing pattern we generate when saving: "_<5digits>_"
-        # Preserve numeric-only base names like "96".
-        stem, _ = os.path.splitext(name)
-        m = re.match(r"^(.*?)(?:_\d{5}_)$", stem)
-        return m.group(1) if m else stem
-
-    def _extract_sd3_shift(self, meta: dict, prompt_json: dict | None) -> float:
-        """
-        Find SD3 'shift' in several places:
-        1) flat meta["shift"]
-        2) nested in prompt/workflow JSON:
-        - nodes[].{type|class_type} == "ModelSamplingSD3" -> inputs.shift or widgets_values[0]
-        - runtime-style prompt dict mapping IDs -> {..., class_type: "ModelSamplingSD3"}
-        Falls back to 5.0 if not found.
-        """
-        def try_float(x):
-            try:
-                return float(x)
-            except Exception:
-                return None
-
-        # 1) flat meta
-        if isinstance(meta, dict):
-            v = try_float(meta.get("shift"))
-            if v is not None:
-                return v
-
-        # parse any JSON-like strings present in meta
-        def safe_load(x):
-            try:
-                return _safe_json_loads(x) if isinstance(x, str) else x
-            except Exception:
-                return None
-
-        # Search helper over various JSON shapes
-        def search_container(obj):
-            # Direct dict containing shift
-            if isinstance(obj, dict):
-                if "shift" in obj:
-                    v = try_float(obj.get("shift"))
-                    if v is not None:
-                        return v
-
-                # Comfy "nodes": [ {...}, ... ]
-                nodes = obj.get("nodes")
-                if isinstance(nodes, list):
-                    # take the last SD3 node (most recent in graph)
-                    ms_nodes = [n for n in nodes if isinstance(n, dict) and (
-                        n.get("type") == "ModelSamplingSD3" or
-                        n.get("class_type") == "ModelSamplingSD3" or
-                        (isinstance(n.get("properties"), dict) and n["properties"].get("Node name for S&R") == "ModelSamplingSD3")
-                    )]
-                    if ms_nodes:
-                        nd = ms_nodes[-1]
-                        # Prefer explicit inputs.shift if present and literal
-                        inp = nd.get("inputs")
-                        if isinstance(inp, dict) and "shift" in inp:
-                            vv = inp["shift"]
-                            # ignore connection like [node_id, idx]
-                            if not isinstance(vv, (list, tuple)):
-                                v2 = try_float(vv)
-                                if v2 is not None:
-                                    return v2
-                        # Fallback: first widget is shift for SD3 (as seen in your JSON)
-                        w = nd.get("widgets_values")
-                        if isinstance(w, list) and len(w) >= 1:
-                            v2 = try_float(w[0])
-                            if v2 is not None:
-                                return v2
-
-                # Runtime prompt map: {"42": {"class_type":"ModelSamplingSD3", "inputs":{...}, "widgets_values":[...]}, ...}
-                # Heuristic: values that are dicts with class_type keys
-                has_ct = [v for v in obj.values() if isinstance(v, dict) and "class_type" in v]
-                if has_ct:
-                    for nd in has_ct:
-                        if nd.get("class_type") == "ModelSamplingSD3":
-                            inp = nd.get("inputs", {})
-                            if isinstance(inp, dict) and "shift" in inp:
-                                vv = inp["shift"]
-                                if not isinstance(vv, (list, tuple)):
-                                    v2 = try_float(vv)
-                                    if v2 is not None:
-                                        return v2
-                            w = nd.get("widgets_values")
-                            if isinstance(w, list) and len(w) >= 1:
-                                v2 = try_float(w[0])
-                                if v2 is not None:
-                                    return v2
-
-            # Lists / nested
-            if isinstance(obj, list):
-                for it in obj:
-                    v = search_container(it)
-                    if v is not None:
-                        return v
-            return None
-
-        # 2) Look in provided prompt_json
-        v = search_container(prompt_json)
-        if v is not None:
-            return v
-
-        # Also look in common meta fields that can hold the full workflow/prompt
-        for key in ("workflow", "prompt", "extra_pnginfo"):
-            candidate = meta.get(key)
-            cand_obj = safe_load(candidate)
-            if isinstance(cand_obj, dict) or isinstance(cand_obj, list):
-                v = search_container(cand_obj)
-                if v is not None:
-                    return v
-            # extra_pnginfo can nest "workflow"/"prompt" again
-            if isinstance(cand_obj, dict):
-                for subkey in ("workflow", "prompt"):
-                    sub = safe_load(cand_obj.get(subkey))
-                    if isinstance(sub, dict) or isinstance(sub, list):
-                        v = search_container(sub)
-                        if v is not None:
-                            return v
-
-        # default
-        return 5.0
-
     @classmethod
     def IS_CHANGED(s, latent):
         # Fix path lookup (add "latents/" prefix back)
@@ -1025,10 +989,10 @@ class LoadLatent_I2V_MXD:
             _extract_params_from_prompt_json(prompt_json or {}, meta)
 
         # SD3 shift (not in KSamplerAdvanced, but we want it)
-        shift = self._extract_sd3_shift(meta, prompt_json)
+        shift = _extract_sd3_shift(meta, prompt_json)
 
-        sampler_name = self._coerce_enum(sampler_name, getattr(self.__class__, "_SAMPLERS_ENUM", ()))
-        scheduler    = self._coerce_enum(scheduler,    getattr(self.__class__, "_SCHEDULERS_ENUM", ()))
+        sampler_name = _coerce_enum(sampler_name, getattr(self.__class__, "_SAMPLERS_ENUM", ()))
+        scheduler    = _coerce_enum(scheduler,    getattr(self.__class__, "_SCHEDULERS_ENUM", ()))
 
         def normalize_folder(part: str) -> str:
             part = part.replace("\\", "/").strip("/")
@@ -1041,7 +1005,7 @@ class LoadLatent_I2V_MXD:
 
         folder_part = normalize_folder(os.path.dirname(latent))
         base_name   = os.path.basename(latent_path)
-        clean_stem  = self._strip_counter(base_name)
+        clean_stem  = _strip_counter(base_name)
         prefix      = f"{folder_part}/{clean_stem}" if folder_part else clean_stem
 
         # Raw workflow JSON embedded when this latent was saved (empty string if none).
@@ -1136,91 +1100,6 @@ class LoadLatents_FromFolder_I2V_MXD:
 
         return {"required": {"subfolder": (subs, )}}
 
-    def _coerce_enum(self, value, enum_values):
-        try:
-            return value if (enum_values and value in enum_values) else (enum_values[0] if enum_values else value)
-        except Exception:
-            return value
-
-    def _strip_counter(self, name: str) -> str:
-        stem, _ = os.path.splitext(name)
-        m = re.match(r"^(.*?)(?:_\d{5}_)$", stem)
-        return m.group(1) if m else stem
-
-    def _extract_sd3_shift(self, meta: dict, prompt_json: dict | None) -> float:
-        def try_float(x):
-            try: return float(x)
-            except Exception: return None
-
-        if isinstance(meta, dict):
-            v = try_float(meta.get("shift"))
-            if v is not None: return v
-
-        def safe_load(x):
-            try: return _safe_json_loads(x) if isinstance(x, str) else x
-            except Exception: return None
-
-        def search_container(obj):
-            if isinstance(obj, dict):
-                if "shift" in obj:
-                    v = try_float(obj.get("shift"))
-                    if v is not None: return v
-                nodes = obj.get("nodes")
-                if isinstance(nodes, list):
-                    ms_nodes = [n for n in nodes if isinstance(n, dict) and (
-                        n.get("type") == "ModelSamplingSD3" or
-                        n.get("class_type") == "ModelSamplingSD3" or
-                        (isinstance(n.get("properties"), dict) and n["properties"].get("Node name for S&R") == "ModelSamplingSD3")
-                    )]
-                    if ms_nodes:
-                        nd = ms_nodes[-1]
-                        inp = nd.get("inputs")
-                        if isinstance(inp, dict) and "shift" in inp:
-                            vv = inp["shift"]
-                            if not isinstance(vv, (list, tuple)):
-                                v2 = try_float(vv)
-                                if v2 is not None: return v2
-                        w = nd.get("widgets_values")
-                        if isinstance(w, list) and len(w) >= 1:
-                            v2 = try_float(w[0])
-                            if v2 is not None: return v2
-                has_ct = [v for v in obj.values() if isinstance(v, dict) and "class_type" in v]
-                for nd in has_ct:
-                    if nd.get("class_type") == "ModelSamplingSD3":
-                        inp = nd.get("inputs", {})
-                        if isinstance(inp, dict) and "shift" in inp:
-                            vv = inp["shift"]
-                            if not isinstance(vv, (list, tuple)):
-                                v2 = try_float(vv)
-                                if v2 is not None: return v2
-                        w = nd.get("widgets_values")
-                        if isinstance(w, list) and len(w) >= 1:
-                            v2 = try_float(w[0])
-                            if v2 is not None: return v2
-            if isinstance(obj, list):
-                for it in obj:
-                    v = search_container(it)
-                    if v is not None: return v
-            return None
-
-        v = search_container(prompt_json)
-        if v is not None: return v
-
-        for key in ("workflow", "prompt", "extra_pnginfo"):
-            candidate = meta.get(key)
-            cand_obj = safe_load(candidate)
-            if isinstance(cand_obj, (dict, list)):
-                v = search_container(cand_obj)
-                if v is not None: return v
-            if isinstance(cand_obj, dict):
-                for subkey in ("workflow", "prompt"):
-                    sub = safe_load(cand_obj.get(subkey))
-                    if isinstance(sub, (dict, list)):
-                        v = search_container(sub)
-                        if v is not None: return v
-
-        return 5.0
-
     def load_batch_i2v(self, subfolder):
         latents_root = os.path.join(folder_paths.get_input_directory(), "latents")
         base = os.path.join(latents_root, subfolder) if subfolder else latents_root
@@ -1248,15 +1127,15 @@ class LoadLatents_FromFolder_I2V_MXD:
             _pos_text, _neg_text, n_steps, cfg, sampler_name, scheduler, end_at_step = \
                 _extract_params_from_prompt_json(prompt_json or {}, meta)
 
-            sampler_name = self._coerce_enum(sampler_name, getattr(self.__class__, "_SAMPLERS_ENUM", ()))
-            scheduler    = self._coerce_enum(scheduler,    getattr(self.__class__, "_SCHEDULERS_ENUM", ()))
-            shift_val    = self._extract_sd3_shift(meta, prompt_json)
+            sampler_name = _coerce_enum(sampler_name, getattr(self.__class__, "_SAMPLERS_ENUM", ()))
+            scheduler    = _coerce_enum(scheduler,    getattr(self.__class__, "_SCHEDULERS_ENUM", ()))
+            shift_val    = _extract_sd3_shift(meta, prompt_json)
 
             positive_conditioning, negative_conditioning, sidecar = _load_i2v_conditioning_sidecar(path)
             trim_latent = _coerce_trim_latent(sidecar.get("trim_latent", meta.get("trim_latent", 0)))
 
             folder_part = subfolder if subfolder else ""
-            clean_stem  = self._strip_counter(os.path.basename(path))
+            clean_stem  = _strip_counter(os.path.basename(path))
             prefix      = os.path.join(folder_part, clean_stem) if folder_part else clean_stem
 
             for sl in slices:
@@ -1412,15 +1291,9 @@ class LatentPipeUnpack_MXD:
 
         return {"required": {"latent_pipe": ("MXD_LATENT_PIPE",)}}
 
-    def _coerce_enum(self, value, enum_values):
-        try:
-            return value if (enum_values and value in enum_values) else (enum_values[0] if enum_values else value)
-        except Exception:
-            return value
-
     def unpack(self, latent_pipe):
-        sampler_name = self._coerce_enum(latent_pipe.get("sampler_name"), getattr(self.__class__, "_SAMPLERS_ENUM", ()))
-        scheduler    = self._coerce_enum(latent_pipe.get("scheduler"),    getattr(self.__class__, "_SCHEDULERS_ENUM", ()))
+        sampler_name = _coerce_enum(latent_pipe.get("sampler_name"), getattr(self.__class__, "_SAMPLERS_ENUM", ()))
+        scheduler    = _coerce_enum(latent_pipe.get("scheduler"),    getattr(self.__class__, "_SCHEDULERS_ENUM", ()))
 
         return (
             latent_pipe.get("shift", 0.0),

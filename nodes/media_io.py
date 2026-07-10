@@ -1,5 +1,5 @@
 from __future__ import annotations
-import torch, os, folder_paths, node_helpers, json, hashlib, re
+import torch, os, folder_paths, node_helpers, json, hashlib
 import numpy as np
 from PIL import Image, ImageOps, ImageSequence
 from nodes import PreviewImage, SaveImage
@@ -11,25 +11,9 @@ except Exception as _e:
     HAVE_COMFY_API_VIDEO = False
     print(f"[ComfyUI-MaxedOut] comfy_api video I/O not available in media_io: {_e}")
 
-########################################################################################################################
-# ---------- Helpers (copied from latent loader style) ----------
-def _safe_json_loads(s):
-    if s is None:
-        return None
-    if isinstance(s, bytes):
-        try:
-            s = s.decode("utf-8", "ignore")
-        except Exception:
-            return None
-    if not isinstance(s, str):
-        return None
-    try:
-        return json.loads(s)
-    except Exception:
-        try:
-            return json.loads(json.loads(s))
-        except Exception:
-            return None
+from .shared.metadata import _safe_json_loads
+from .shared.paths import _sort_paths_newest_first
+from .shared.routes import register_get_route
 
 
 def _extract_params_from_prompt_json(prompt_json: dict):
@@ -71,14 +55,6 @@ def _extract_params_from_prompt_json(prompt_json: dict):
 
     return pos, neg
 
-def _strip_counter(name: str) -> str:
-    # Only strip the trailing pattern we generate when saving: "_<5digits>_"
-    # Preserve numeric-only base names like "96".
-    stem, _ = os.path.splitext(name)
-    m = re.match(r"^(.*?)(?:_\d{5}_)$", stem)
-    return m.group(1) if m else stem
-
-# ---------- Node ----------
 def _indent_paths(paths):
     indented = []
     for path in paths:
@@ -172,17 +148,6 @@ IMAGE_BATCH_EXTS = (".png", ".jpg", ".jpeg", ".webp")
 VIDEO_BATCH_EXTS = (".mp4",)
 
 
-def _sort_paths_newest_first(paths):
-    """Sort file paths by mtime desc (newest first), stable by normalized path."""
-    def _mtime(path):
-        try:
-            return os.path.getmtime(path)
-        except OSError:
-            return 0.0
-
-    return sorted(paths, key=lambda p: (-_mtime(p), p.replace("\\", "/").lower()))
-
-
 def _list_files_recursive(root: str, exts: tuple):
     """Recursively list files under `root` matching `exts`, newest first, as relpaths."""
     try:
@@ -231,34 +196,35 @@ def _list_files_recursive_union(output_root: str, input_root: str, exts: tuple):
 
 # Server routes so the frontend can swap folder/file dropdowns between
 # inputs/outputs without reloading the page.
-try:
-    from server import PromptServer as _MXD_PromptServer
-    from aiohttp import web as _mxd_web
+from aiohttp import web as _mxd_web
 
-    @_MXD_PromptServer.instance.routes.get("/mxd/image_batch/folders")
-    async def _mxd_list_image_batch_folders(request):
-        return _mxd_web.json_response({
-            "outputs": _indent_paths(_list_image_batch_subdirs(folder_paths.get_output_directory())),
-            "inputs": _indent_paths(_list_image_batch_subdirs(folder_paths.get_input_directory())),
-        })
 
-    @_MXD_PromptServer.instance.routes.get("/mxd/video_batch/folders")
-    async def _mxd_list_video_batch_folders(request):
-        return _mxd_web.json_response({
-            "outputs": _indent_paths(_list_image_batch_subdirs(folder_paths.get_output_directory(), VIDEO_BATCH_EXTS)),
-            "inputs": _indent_paths(_list_image_batch_subdirs(folder_paths.get_input_directory(), VIDEO_BATCH_EXTS)),
-        })
+async def _mxd_list_image_batch_folders(request):
+    return _mxd_web.json_response({
+        "outputs": _indent_paths(_list_image_batch_subdirs(folder_paths.get_output_directory())),
+        "inputs": _indent_paths(_list_image_batch_subdirs(folder_paths.get_input_directory())),
+    })
 
-    @_MXD_PromptServer.instance.routes.get("/mxd/single_loader/files")
-    async def _mxd_list_single_loader_files(request):
-        kind = request.query.get("kind", "image")
-        exts = VIDEO_BATCH_EXTS if kind == "video" else IMAGE_BATCH_EXTS
-        return _mxd_web.json_response({
-            "outputs": _list_files_recursive(folder_paths.get_output_directory(), exts),
-            "inputs": _list_files_recursive(folder_paths.get_input_directory(), exts),
-        })
-except Exception as _e:
-    print(f"[LoadImageBatchMXD] Could not register folders route: {_e}")
+
+async def _mxd_list_video_batch_folders(request):
+    return _mxd_web.json_response({
+        "outputs": _indent_paths(_list_image_batch_subdirs(folder_paths.get_output_directory(), VIDEO_BATCH_EXTS)),
+        "inputs": _indent_paths(_list_image_batch_subdirs(folder_paths.get_input_directory(), VIDEO_BATCH_EXTS)),
+    })
+
+
+async def _mxd_list_single_loader_files(request):
+    kind = request.query.get("kind", "image")
+    exts = VIDEO_BATCH_EXTS if kind == "video" else IMAGE_BATCH_EXTS
+    return _mxd_web.json_response({
+        "outputs": _list_files_recursive(folder_paths.get_output_directory(), exts),
+        "inputs": _list_files_recursive(folder_paths.get_input_directory(), exts),
+    })
+
+
+register_get_route("/mxd/image_batch/folders", _mxd_list_image_batch_folders)
+register_get_route("/mxd/video_batch/folders", _mxd_list_video_batch_folders)
+register_get_route("/mxd/single_loader/files", _mxd_list_single_loader_files)
 
 
 class LoadImageBatchMXD:
