@@ -7,7 +7,6 @@ const NODE_TYPE_STRING = "Image Comparer + Save MXD";
 const NODE_TYPE_STRINGS = new Set([
     NODE_TYPE_STRING,
     "Video Comparer MXD",
-    "VideoComparerMXD",
 ]);
 const NODE_OVERRIDE_CLASSES = new Map();
 

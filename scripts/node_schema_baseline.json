@@ -1,0 +1,3026 @@
+{
+  "node_count": 68,
+  "nodes": {
+    "BboxDetectorCombinedBatchMXD": {
+      "category": "MXD/Detector",
+      "class": "BboxDetectorCombinedBatchMXD",
+      "display_name": "BBOX Detector Combined Batch MXD",
+      "function": "detect",
+      "input_types": {
+        "required": {
+          "bbox_detector": {
+            "type": "BBOX_DETECTOR"
+          },
+          "dilation": {
+            "config": {
+              "default": 4,
+              "max": 512,
+              "min": -512,
+              "step": 1
+            },
+            "type": "INT"
+          },
+          "images": {
+            "type": "IMAGE"
+          },
+          "threshold": {
+            "config": {
+              "default": 0.5,
+              "max": 1.0,
+              "min": 0.0,
+              "step": 0.01
+            },
+            "type": "FLOAT"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "mask"
+      ],
+      "return_types": [
+        "MASK"
+      ]
+    },
+    "CLIPLoaderUnified": {
+      "category": "advanced/loaders",
+      "class": "CLIPLoaderUnified",
+      "display_name": "Smart CLIP Loader MXD",
+      "function": "load_clip",
+      "input_types": {
+        "required": {
+          "clip_name1": {
+            "type": {
+              "combo": "nonempty",
+              "dynamic": true
+            }
+          },
+          "type": {
+            "type": {
+              "combo": [
+                "stable_diffusion",
+                "stable_cascade",
+                "sd3",
+                "stable_audio",
+                "mochi",
+                "ltxv",
+                "pixart",
+                "cosmos",
+                "lumina2",
+                "wan",
+                "hidream",
+                "chroma",
+                "ace",
+                "omnigen2",
+                "qwen_image",
+                "hunyuan_image",
+                "flux2",
+                "ovis",
+                "longcat_image"
+              ]
+            }
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": null,
+      "return_types": [
+        "CLIP"
+      ]
+    },
+    "CombineForegroundsBackgroundFFGOMXD": {
+      "category": "MXD/Image",
+      "class": "CombineForegroundsBackgroundFFGOMXD",
+      "display_name": "Combine Fore + Back FFGO MXD",
+      "function": "combine",
+      "input_types": {
+        "optional": {
+          "foreground_2": {
+            "type": "IMAGE"
+          },
+          "foreground_3": {
+            "type": "IMAGE"
+          },
+          "foreground_4": {
+            "type": "IMAGE"
+          },
+          "foreground_5": {
+            "type": "IMAGE"
+          },
+          "foreground_6": {
+            "type": "IMAGE"
+          }
+        },
+        "required": {
+          "background": {
+            "type": "IMAGE"
+          },
+          "canvas_height": {
+            "config": {
+              "default": 720,
+              "max": 8192,
+              "min": 64,
+              "step": 8
+            },
+            "type": "INT"
+          },
+          "canvas_width": {
+            "config": {
+              "default": 1280,
+              "max": 8192,
+              "min": 64,
+              "step": 8
+            },
+            "type": "INT"
+          },
+          "foreground_1": {
+            "type": "IMAGE"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "image"
+      ],
+      "return_types": [
+        "IMAGE"
+      ]
+    },
+    "CombineTwoImagesFFGOMXD": {
+      "category": "MXD/Image",
+      "class": "CombineTwoImagesFFGOMXD",
+      "display_name": "Combine 2 Images FFGO MXD",
+      "function": "combine",
+      "input_types": {
+        "required": {
+          "canvas_height": {
+            "config": {
+              "default": 512,
+              "max": 8192,
+              "min": 64,
+              "step": 8
+            },
+            "type": "INT"
+          },
+          "canvas_width": {
+            "config": {
+              "default": 1024,
+              "max": 8192,
+              "min": 64,
+              "step": 8
+            },
+            "type": "INT"
+          },
+          "direction": {
+            "config": {
+              "default": "horizontal"
+            },
+            "type": {
+              "combo": [
+                "horizontal",
+                "vertical"
+              ]
+            }
+          },
+          "image_1": {
+            "type": "IMAGE"
+          },
+          "image_2": {
+            "type": "IMAGE"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "image"
+      ],
+      "return_types": [
+        "IMAGE"
+      ]
+    },
+    "CombineVideos_MXD": {
+      "category": "MXD/video",
+      "class": "CombineVideos_MXD",
+      "display_name": "Combine Videos MXD",
+      "function": "combine",
+      "input_types": {
+        "required": {
+          "back_video": {
+            "config": {
+              "tooltip": "The second video (plays after the first)"
+            },
+            "type": "VIDEO"
+          },
+          "front_video": {
+            "config": {
+              "tooltip": "The first video (plays first)"
+            },
+            "type": "VIDEO"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "video"
+      ],
+      "return_types": [
+        "VIDEO"
+      ]
+    },
+    "Crop Image By Mask": {
+      "category": "MXD/image",
+      "class": "CropImageByMask",
+      "display_name": "Crop Image by Mask MXD",
+      "function": "crop",
+      "input_types": {
+        "optional": {
+          "mask": {
+            "type": "MASK"
+          }
+        },
+        "required": {
+          "image": {
+            "type": "IMAGE"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "image"
+      ],
+      "return_types": [
+        "IMAGE"
+      ]
+    },
+    "DualCLIPLoaderUnified": {
+      "category": "advanced/loaders",
+      "class": "DualCLIPLoaderUnified",
+      "display_name": "Smart Dual CLIP Loader MXD",
+      "function": "load_clip",
+      "input_types": {
+        "required": {
+          "clip_name1": {
+            "type": {
+              "combo": "nonempty",
+              "dynamic": true
+            }
+          },
+          "clip_name2": {
+            "type": {
+              "combo": "nonempty",
+              "dynamic": true
+            }
+          },
+          "type": {
+            "type": {
+              "combo": [
+                "sdxl",
+                "sd3",
+                "flux",
+                "hunyuan_video",
+                "hidream",
+                "hunyuan_image",
+                "hunyuan_video_15",
+                "kandinsky5",
+                "kandinsky5_image",
+                "ltxv",
+                "newbie",
+                "ace"
+              ]
+            }
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": null,
+      "return_types": [
+        "CLIP"
+      ]
+    },
+    "Extract Workflow From Image MXD": {
+      "category": "MXD/Image",
+      "class": "ExtractWorkflowFromImageMXD",
+      "display_name": "Extract Workflow From Image MXD",
+      "function": "extract_and_save",
+      "input_types": {
+        "hidden": {
+          "extra_pnginfo": {
+            "type": "EXTRA_PNGINFO"
+          },
+          "prompt": {
+            "type": "PROMPT"
+          }
+        },
+        "required": {
+          "filename_prefix": {
+            "config": {
+              "default": "workflow/ComfyUI",
+              "tooltip": "Output JSON prefix. You can include subfolders, e.g. 'workflow/my_run'."
+            },
+            "type": "STRING"
+          },
+          "image": {
+            "config": {
+              "tooltip": "Any connected image. Used to trigger extraction/save."
+            },
+            "type": "IMAGE"
+          }
+        }
+      },
+      "output_node": true,
+      "return_names": [
+        "json_path"
+      ],
+      "return_types": [
+        "STRING"
+      ]
+    },
+    "Flux 2 Empty Latent Image": {
+      "category": "MXD/Latent",
+      "class": "Flux2EmptyLatentImage",
+      "display_name": "Flux 2 Empty Latent Image MXD",
+      "function": "generate",
+      "input_types": {
+        "required": {
+          "batch_size": {
+            "config": {
+              "default": 1,
+              "max": 4096,
+              "min": 1,
+              "tooltip": "The number of latent images in the batch."
+            },
+            "type": "INT"
+          },
+          "resolution": {
+            "config": {
+              "default": "Square (1:1) 1024x1024"
+            },
+            "type": {
+              "combo": [
+                "— High Resolutions —",
+                "Square (1:1) 1408x1408",
+                "Standard (4:3) 1664x1216",
+                "Landscape (3:2) 1728x1152",
+                "Widescreen (16:9) 1920x1088",
+                "Ultrawide (21:9) 2176x960",
+                "— Standard Resolutions —",
+                "Square (1:1) 1024x1024",
+                "Standard (4:3) 1152x896",
+                "Landscape (3:2) 1216x832",
+                "Widescreen (16:9) 1344x768",
+                "Ultrawide (21:9) 1536x640",
+                "— Low Resolutions —",
+                "Square (1:1) 320x320",
+                "Standard (4:3) 448x320",
+                "Landscape (3:2) 384x256",
+                "Widescreen (16:9) 448x256",
+                "Ultrawide (21:9) 576x256"
+              ]
+            }
+          },
+          "vertical": {
+            "config": {
+              "default": false
+            },
+            "type": "BOOLEAN"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": null,
+      "return_types": [
+        "LATENT"
+      ]
+    },
+    "Flux Empty Latent Image": {
+      "category": "MXD/Latent",
+      "class": "FluxEmptyLatentImage",
+      "display_name": "Flux Empty Latent Image MXD",
+      "function": "generate",
+      "input_types": {
+        "required": {
+          "batch_size": {
+            "config": {
+              "default": 1,
+              "max": 4096,
+              "min": 1,
+              "tooltip": "The number of latent images in the batch."
+            },
+            "type": "INT"
+          },
+          "resolution": {
+            "config": {
+              "default": "Square (1:1) 1024x1024"
+            },
+            "type": {
+              "combo": [
+                "— High Resolutions —",
+                "Square (1:1) 1408x1408",
+                "Standard (4:3) 1664x1216",
+                "Landscape (3:2) 1728x1152",
+                "Widescreen (16:9) 1920x1088",
+                "Ultrawide (21:9) 2176x960",
+                "— Standard Resolutions —",
+                "Square (1:1) 1024x1024",
+                "Standard (4:3) 1152x896",
+                "Landscape (3:2) 1216x832",
+                "Widescreen (16:9) 1344x768",
+                "Ultrawide (21:9) 1536x640",
+                "— Low Resolutions —",
+                "Square (1:1) 320x320",
+                "Standard (4:3) 448x320",
+                "Landscape (3:2) 384x256",
+                "Widescreen (16:9) 448x256",
+                "Ultrawide (21:9) 576x256"
+              ]
+            }
+          },
+          "vertical": {
+            "config": {
+              "default": false
+            },
+            "type": "BOOLEAN"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": null,
+      "return_types": [
+        "LATENT"
+      ]
+    },
+    "Flux Image Scale To Total Pixels (Flux Safe)": {
+      "category": "MXD/Upscaling",
+      "class": "FluxImageScaleToTotalPixelsSafe",
+      "display_name": "Scale Flux Image MXD",
+      "function": "upscale",
+      "input_types": {
+        "required": {
+          "image": {
+            "type": "IMAGE"
+          },
+          "total_megapixels": {
+            "config": {
+              "default": 1.0,
+              "max": 128.0,
+              "min": 0.01,
+              "step": 0.01,
+              "tooltip": "Set the total megapixels (e.g., 1.0 = 1 MP)"
+            },
+            "type": "FLOAT"
+          },
+          "upscale_method": {
+            "config": {
+              "default": "bilinear"
+            },
+            "type": {
+              "combo": [
+                "bilinear",
+                "bicubic",
+                "lanczos",
+                "nearest-exact",
+                "area"
+              ]
+            }
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": null,
+      "return_types": [
+        "IMAGE"
+      ]
+    },
+    "Flux Resolution Selector": {
+      "category": "MXD/Latent",
+      "class": "FluxResolutionSelector",
+      "display_name": "Flux Resolution Selector MXD",
+      "function": "select_resolution",
+      "input_types": {
+        "required": {
+          "resolution": {
+            "config": {
+              "default": "Square (1:1) 1024x1024"
+            },
+            "type": {
+              "combo": [
+                "— High Resolutions —",
+                "Square (1:1) 1408x1408",
+                "Standard (4:3) 1664x1216",
+                "Landscape (3:2) 1728x1152",
+                "Widescreen (16:9) 1920x1088",
+                "Ultrawide (21:9) 2176x960",
+                "— Standard Resolutions —",
+                "Square (1:1) 1024x1024",
+                "Standard (4:3) 1152x896",
+                "Landscape (3:2) 1216x832",
+                "Widescreen (16:9) 1344x768",
+                "Ultrawide (21:9) 1536x640",
+                "— Low Resolutions —",
+                "Square (1:1) 320x320",
+                "Standard (4:3) 448x320",
+                "Landscape (3:2) 384x256",
+                "Widescreen (16:9) 448x256",
+                "Ultrawide (21:9) 576x256"
+              ]
+            }
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "resolution"
+      ],
+      "return_types": [
+        "['— High Resolutions —', 'Square (1:1) 1408x1408', 'Standard (4:3) 1664x1216', 'Landscape (3:2) 1728x1152', 'Widescreen (16:9) 1920x1088', 'Ultrawide (21:9) 2176x960', '— Standard Resolutions —', 'Square (1:1) 1024x1024', 'Standard (4:3) 1152x896', 'Landscape (3:2) 1216x832', 'Widescreen (16:9) 1344x768', 'Ultrawide (21:9) 1536x640', '— Low Resolutions —', 'Square (1:1) 320x320', 'Standard (4:3) 448x320', 'Landscape (3:2) 384x256', 'Widescreen (16:9) 448x256', 'Ultrawide (21:9) 576x256']"
+      ]
+    },
+    "FluxResolutionMatcher": {
+      "category": "MXD/Latent",
+      "class": "FluxResolutionMatcher",
+      "display_name": "Flux Resolution Matcher MXD",
+      "function": "match_resolution",
+      "input_types": {
+        "required": {
+          "image": {
+            "type": "IMAGE"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "resolution",
+        "vertical"
+      ],
+      "return_types": [
+        "['— High Resolutions —', 'Square (1:1) 1408x1408', 'Standard (4:3) 1664x1216', 'Landscape (3:2) 1728x1152', 'Widescreen (16:9) 1920x1088', 'Ultrawide (21:9) 2176x960', '— Standard Resolutions —', 'Square (1:1) 1024x1024', 'Standard (4:3) 1152x896', 'Landscape (3:2) 1216x832', 'Widescreen (16:9) 1344x768', 'Ultrawide (21:9) 1536x640', '— Low Resolutions —', 'Square (1:1) 320x320', 'Standard (4:3) 448x320', 'Landscape (3:2) 384x256', 'Widescreen (16:9) 448x256', 'Ultrawide (21:9) 576x256']",
+        "BOOLEAN"
+      ]
+    },
+    "Frames_Remove_From_Start_MXD": {
+      "category": "MXD/images",
+      "class": "Frames_Remove_From_Start_MXD",
+      "display_name": "Remove Frames From Start MXD",
+      "function": "main",
+      "input_types": {
+        "required": {
+          "count": {
+            "config": {
+              "default": 10,
+              "max": 10000,
+              "min": 1,
+              "tooltip": "Number of frames to remove from the start"
+            },
+            "type": "INT"
+          },
+          "frames": {
+            "type": "IMAGE"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "image"
+      ],
+      "return_types": [
+        "IMAGE"
+      ]
+    },
+    "Frames_Select_StartEnd_MXD": {
+      "category": "MXD/images",
+      "class": "Frames_Select_StartEnd_MXD",
+      "display_name": "Select Frames MXD",
+      "function": "main",
+      "input_types": {
+        "required": {
+          "count": {
+            "config": {
+              "default": 1,
+              "max": 10000,
+              "min": 1,
+              "tooltip": "Number of frames to select"
+            },
+            "type": "INT"
+          },
+          "frames": {
+            "type": "IMAGE"
+          },
+          "mode": {
+            "config": {
+              "default": "end",
+              "tooltip": "Select frames from the start or end of the sequence"
+            },
+            "type": {
+              "combo": [
+                "start",
+                "end"
+              ]
+            }
+          },
+          "offset": {
+            "config": {
+              "default": 1,
+              "max": 10000,
+              "min": 1,
+              "tooltip": "How far into the video to start selection (from start or end)"
+            },
+            "type": "INT"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "image"
+      ],
+      "return_types": [
+        "IMAGE"
+      ]
+    },
+    "Get Latent Size": {
+      "category": "MXD/Latent",
+      "class": "GetLatentSizeMXD",
+      "display_name": "Get Latent Size MXD",
+      "function": "get_size",
+      "input_types": {
+        "required": {
+          "latent": {
+            "type": "LATENT"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "width",
+        "height"
+      ],
+      "return_types": [
+        "INT",
+        "INT"
+      ]
+    },
+    "GroupVideoFramesMXD": {
+      "category": "MXD/Video",
+      "class": "GroupVideoFramesMXD",
+      "display_name": "Group Video Frames MXD",
+      "function": "group_frames",
+      "input_types": {
+        "required": {
+          "frames": {
+            "type": "IMAGE"
+          },
+          "group_size": {
+            "config": {
+              "default": 81,
+              "max": 5000,
+              "min": 1,
+              "step": 1
+            },
+            "type": "INT"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "IMAGE_GROUPS"
+      ],
+      "return_types": [
+        "IMAGE"
+      ]
+    },
+    "Image Comparer + Save MXD": {
+      "category": "MXD",
+      "class": "MxdImageComparerSave",
+      "display_name": "Image Comparer + Save MXD",
+      "function": "compare_and_save",
+      "input_types": {
+        "hidden": {
+          "extra_pnginfo": {
+            "type": "EXTRA_PNGINFO"
+          },
+          "prompt": {
+            "type": "PROMPT"
+          }
+        },
+        "optional": {
+          "new_image (displayed first)": {
+            "config": {
+              "tooltip": "New image to compare/save. Displayed first."
+            },
+            "type": "IMAGE"
+          },
+          "original_image": {
+            "config": {
+              "tooltip": "Original image for comparison. Shown on slide."
+            },
+            "type": "IMAGE"
+          }
+        },
+        "required": {
+          "filename_prefix": {
+            "config": {
+              "default": "ComfyUI",
+              "tooltip": "Base prefix for saved files. A suffix is added when both images are present."
+            },
+            "type": "STRING"
+          },
+          "mode": {
+            "config": {
+              "default": "Save (New Img) + Preview",
+              "tooltip": "Choose whether to save the new image, preview both, or preview only."
+            },
+            "type": {
+              "combo": [
+                "Save (New Img) + Preview",
+                "Save (New Img) Only",
+                "Preview Only"
+              ]
+            }
+          }
+        }
+      },
+      "output_node": true,
+      "return_names": null,
+      "return_types": []
+    },
+    "Image Scale To Total Pixels (SDXL Safe)": {
+      "category": "MXD/Upscaling",
+      "class": "SDXLImageScaleToTotalPixelsSafe",
+      "display_name": "Scale SDXL Image MXD",
+      "function": "upscale",
+      "input_types": {
+        "required": {
+          "image": {
+            "type": "IMAGE"
+          },
+          "total_megapixels": {
+            "config": {
+              "default": 1.0,
+              "max": 128.0,
+              "min": 0.01,
+              "step": 0.01,
+              "tooltip": "Set the total megapixels (e.g., 1.0 = 1 MP)"
+            },
+            "type": "FLOAT"
+          },
+          "upscale_method": {
+            "config": {
+              "default": "bilinear"
+            },
+            "type": {
+              "combo": [
+                "bilinear",
+                "bicubic",
+                "lanczos",
+                "nearest-exact",
+                "area"
+              ]
+            }
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": null,
+      "return_types": [
+        "IMAGE"
+      ]
+    },
+    "ImageAndMaskPreviewMXD": {
+      "category": "MXD/Image",
+      "class": "ImageAndMaskPreviewMXD",
+      "display_name": "Image and Mask Preview MXD",
+      "function": "execute",
+      "input_types": {
+        "hidden": {
+          "extra_pnginfo": {
+            "type": "EXTRA_PNGINFO"
+          },
+          "prompt": {
+            "type": "PROMPT"
+          }
+        },
+        "optional": {
+          "image": {
+            "type": "IMAGE"
+          },
+          "mask": {
+            "type": "MASK"
+          }
+        },
+        "required": {
+          "mask_color": {
+            "config": {
+              "default": "255, 255, 255",
+              "tooltip": "RGB/RGBA CSV, hex, or color name."
+            },
+            "type": "STRING"
+          },
+          "mask_opacity": {
+            "config": {
+              "default": 1.0,
+              "max": 1.0,
+              "min": 0.0,
+              "step": 0.01
+            },
+            "type": "FLOAT"
+          },
+          "pass_through": {
+            "config": {
+              "default": true,
+              "tooltip": "Legacy option. This node now always returns the composite without creating a preview."
+            },
+            "type": "BOOLEAN"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "composite"
+      ],
+      "return_types": [
+        "IMAGE"
+      ]
+    },
+    "LTX2 Lora Loader MXD": {
+      "category": "mxd",
+      "class": "MxdLtx2PowerLoraLoader",
+      "display_name": "LTX2 Lora Loader MXD",
+      "function": "load_loras",
+      "input_types": {
+        "hidden": {},
+        "optional": {
+          "blocks": {
+            "type": "SELECTEDDITBLOCKS"
+          }
+        },
+        "required": {
+          "model": {
+            "type": "MODEL"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "MODEL",
+        "rank",
+        "loaded_keys_info"
+      ],
+      "return_types": [
+        "MODEL",
+        "STRING",
+        "STRING"
+      ]
+    },
+    "LTXKSampler2_MXD": {
+      "category": "MXD/Sampling",
+      "class": "LTXKSampler2MXD",
+      "display_name": "LTX Stage 2 Refiner MXD",
+      "function": "sample",
+      "input_types": {
+        "required": {
+          "cfg": {
+            "config": {
+              "default": 1.0,
+              "max": 100.0,
+              "min": 0.0,
+              "step": 0.1
+            },
+            "type": "FLOAT"
+          },
+          "custom_sigmas": {
+            "config": {
+              "default": "0.85, 0.725, 0.4219, 0.0",
+              "multiline": true,
+              "tooltip": "Only used when mode is Custom Sigmas. Enter comma, space, or newline separated sigma values."
+            },
+            "type": "STRING"
+          },
+          "latent_image": {
+            "type": "LATENT"
+          },
+          "ltx_preview": {
+            "config": {
+              "default": true,
+              "tooltip": "Show LTX video previews during sampling. Downloads the taeltx VAE to your vae model folder if it is missing."
+            },
+            "type": "BOOLEAN"
+          },
+          "mode": {
+            "config": {
+              "default": "Official Refine"
+            },
+            "type": {
+              "combo": [
+                "Official Refine",
+                "Custom Sigmas"
+              ]
+            }
+          },
+          "model": {
+            "type": "MODEL"
+          },
+          "negative": {
+            "type": "CONDITIONING"
+          },
+          "positive": {
+            "type": "CONDITIONING"
+          },
+          "sampler_name": {
+            "config": {
+              "default": "euler_cfg_pp"
+            },
+            "type": {
+              "combo": [
+                "euler_cfg_pp",
+                "euler_ancestral_cfg_pp",
+                "euler"
+              ]
+            }
+          },
+          "seed": {
+            "config": {
+              "control_after_generate": true,
+              "default": 0,
+              "max": 18446744073709551615,
+              "min": 0
+            },
+            "type": "INT"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "latent"
+      ],
+      "return_types": [
+        "LATENT"
+      ]
+    },
+    "LTXKSampler_MXD": {
+      "category": "MXD/Sampling",
+      "class": "LTXKSamplerMXD",
+      "display_name": "LTX Stage 1 Sampler MXD",
+      "function": "sample",
+      "input_types": {
+        "required": {
+          "cfg": {
+            "config": {
+              "default": 2.0,
+              "max": 100.0,
+              "min": 0.0,
+              "step": 0.1
+            },
+            "type": "FLOAT"
+          },
+          "custom_sigmas": {
+            "config": {
+              "default": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0",
+              "multiline": true,
+              "tooltip": "Only used when mode is Custom Sigmas. Enter comma, space, or newline separated sigma values."
+            },
+            "type": "STRING"
+          },
+          "latent_image": {
+            "type": "LATENT"
+          },
+          "ltx_preview": {
+            "config": {
+              "default": true,
+              "tooltip": "Show LTX video previews during sampling. Downloads the taeltx VAE to your vae model folder if it is missing."
+            },
+            "type": "BOOLEAN"
+          },
+          "mode": {
+            "config": {
+              "default": "Distilled 8 Step"
+            },
+            "type": {
+              "combo": [
+                "Distilled 8 Step",
+                "Custom Sigmas"
+              ]
+            }
+          },
+          "model": {
+            "type": "MODEL"
+          },
+          "negative": {
+            "type": "CONDITIONING"
+          },
+          "positive": {
+            "type": "CONDITIONING"
+          },
+          "sampler_name": {
+            "config": {
+              "default": "euler_ancestral_cfg_pp"
+            },
+            "type": {
+              "combo": [
+                "euler_ancestral_cfg_pp",
+                "euler_cfg_pp",
+                "euler"
+              ]
+            }
+          },
+          "seed": {
+            "config": {
+              "control_after_generate": true,
+              "default": 0,
+              "max": 18446744073709551615,
+              "min": 0
+            },
+            "type": "INT"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "latent"
+      ],
+      "return_types": [
+        "LATENT"
+      ]
+    },
+    "LTXPreview_MXD": {
+      "category": "MXD/Sampling",
+      "class": "LTXPreviewMXD",
+      "display_name": "LTX Preview MXD",
+      "function": "apply",
+      "input_types": {
+        "required": {
+          "enabled": {
+            "config": {
+              "default": true,
+              "tooltip": "Turn taeltx previews on/off without unwiring the node."
+            },
+            "type": "BOOLEAN"
+          },
+          "model": {
+            "type": "MODEL"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "model"
+      ],
+      "return_types": [
+        "MODEL"
+      ]
+    },
+    "LTXVideoEmptyLatent_MXD": {
+      "category": "MXD/Latent",
+      "class": "LTXVideoEmptyLatentMXD",
+      "display_name": "LTX Empty Latent Video MXD",
+      "function": "generate",
+      "input_types": {
+        "optional": {
+          "height": {
+            "config": {
+              "default": 384,
+              "max": 8192,
+              "min": 32,
+              "step": 32,
+              "tooltip": "Stage 1 height. Connect the LTX Image Scaler stage1_height output for I2V workflows."
+            },
+            "type": "INT"
+          },
+          "width": {
+            "config": {
+              "default": 640,
+              "max": 8192,
+              "min": 32,
+              "step": 32,
+              "tooltip": "Stage 1 width. Connect the LTX Image Scaler stage1_width output for I2V workflows."
+            },
+            "type": "INT"
+          }
+        },
+        "required": {
+          "batch_size": {
+            "config": {
+              "default": 1,
+              "max": 4096,
+              "min": 1,
+              "tooltip": "Number of latent videos in the batch."
+            },
+            "type": "INT"
+          },
+          "length": {
+            "config": {
+              "default": 97,
+              "max": 1025,
+              "min": 9,
+              "step": 8,
+              "tooltip": "Number of frames. Must be 8n+1 (e.g. 25, 49, 73, 97, 121, 201)."
+            },
+            "type": "INT"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "latent",
+        "length"
+      ],
+      "return_types": [
+        "LATENT",
+        "INT"
+      ]
+    },
+    "LTX_Image_Scaler_MXD": {
+      "category": "image/processing",
+      "class": "LTX_Image_Scaler_MXD",
+      "display_name": "LTX Video Image Scaler MXD",
+      "function": "scale",
+      "input_types": {
+        "required": {
+          "crop_to_fit": {
+            "config": {
+              "default": true,
+              "label_off": "Closest Fit (No Crop)",
+              "label_on": "Crop Edges"
+            },
+            "type": "BOOLEAN"
+          },
+          "image": {
+            "type": "IMAGE"
+          },
+          "tier": {
+            "config": {
+              "default": "1080p"
+            },
+            "type": {
+              "combo": [
+                "1080p",
+                "720p",
+                "576p"
+              ]
+            }
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "image",
+        "width",
+        "height"
+      ],
+      "return_types": [
+        "IMAGE",
+        "INT",
+        "INT"
+      ]
+    },
+    "LatentHalfMasks": {
+      "category": "MXD/latent",
+      "class": "LatentHalfMasks",
+      "display_name": "Latent to L/R Masks MXD",
+      "function": "make_masks",
+      "input_types": {
+        "required": {
+          "latent": {
+            "type": "LATENT"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "mask_left",
+        "mask_right"
+      ],
+      "return_types": [
+        "MASK",
+        "MASK"
+      ]
+    },
+    "LatentPipeUnpack_MXD": {
+      "category": "MXD/Latents",
+      "class": "LatentPipeUnpack_MXD",
+      "display_name": "Unpack Latent Pipe MXD",
+      "function": "unpack",
+      "input_types": {
+        "required": {
+          "latent_pipe": {
+            "type": "MXD_LATENT_PIPE"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "shift",
+        "positive",
+        "negative",
+        "samples",
+        "steps",
+        "cfg",
+        "sampler_name",
+        "scheduler",
+        "end_at_step",
+        "filename_prefix",
+        "trim_latent",
+        "high_workflow"
+      ],
+      "return_types": [
+        "FLOAT",
+        "CONDITIONING",
+        "CONDITIONING",
+        "LATENT",
+        "INT",
+        "FLOAT",
+        "['euler', 'euler_cfg_pp', 'euler_ancestral', 'euler_ancestral_cfg_pp', 'heun', 'heunpp2', 'exp_heun_2_x0', 'exp_heun_2_x0_sde', 'dpm_2', 'dpm_2_ancestral', 'lms', 'dpm_fast', 'dpm_adaptive', 'dpmpp_2s_ancestral', 'dpmpp_2s_ancestral_cfg_pp', 'dpmpp_sde', 'dpmpp_sde_gpu', 'dpmpp_2m', 'dpmpp_2m_cfg_pp', 'dpmpp_2m_sde', 'dpmpp_2m_sde_gpu', 'dpmpp_2m_sde_heun', 'dpmpp_2m_sde_heun_gpu', 'dpmpp_3m_sde', 'dpmpp_3m_sde_gpu', 'ddpm', 'lcm', 'ipndm', 'ipndm_v', 'deis', 'res_multistep', 'res_multistep_cfg_pp', 'res_multistep_ancestral', 'res_multistep_ancestral_cfg_pp', 'gradient_estimation', 'gradient_estimation_cfg_pp', 'er_sde', 'seeds_2', 'seeds_3', 'sa_solver', 'sa_solver_pece', 'ddim', 'uni_pc', 'uni_pc_bh2']",
+        "['simple', 'sgm_uniform', 'karras', 'exponential', 'ddim_uniform', 'beta', 'normal', 'linear_quadratic', 'kl_optimal']",
+        "INT",
+        "STRING",
+        "INT",
+        "STRING"
+      ]
+    },
+    "Load Image Batch MXD": {
+      "category": "MXD/Image",
+      "class": "LoadImageBatchMXD",
+      "display_name": "Load Image Batch (Inputs/Outputs) MXD",
+      "function": "load_batch",
+      "input_types": {
+        "required": {
+          "folder": {
+            "config": {
+              "default": "<dynamic-combo-default>"
+            },
+            "type": {
+              "combo": "nonempty",
+              "dynamic": true
+            }
+          },
+          "source": {
+            "config": {
+              "default": "outputs"
+            },
+            "type": {
+              "combo": [
+                "outputs",
+                "inputs"
+              ]
+            }
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "IMAGE",
+        "MASK",
+        "positive",
+        "negative"
+      ],
+      "return_types": [
+        "IMAGE",
+        "MASK",
+        "STRING",
+        "STRING"
+      ]
+    },
+    "Load Video Batch MXD": {
+      "category": "MXD/Video",
+      "class": "LoadVideoBatchMXD",
+      "display_name": "Load Video Batch (Inputs/Outputs) MXD",
+      "function": "load_batch",
+      "input_types": {
+        "required": {
+          "folder": {
+            "config": {
+              "default": "<dynamic-combo-default>"
+            },
+            "type": {
+              "combo": "nonempty",
+              "dynamic": true
+            }
+          },
+          "source": {
+            "config": {
+              "default": "outputs"
+            },
+            "type": {
+              "combo": [
+                "outputs",
+                "inputs"
+              ]
+            }
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "VIDEO"
+      ],
+      "return_types": [
+        "VIDEO"
+      ]
+    },
+    "LoadCheckpointMXD": {
+      "category": "MXD/Loaders",
+      "class": "LoadCheckpointMXD",
+      "display_name": "Load Checkpoint MXD",
+      "function": "load_checkpoint",
+      "input_types": {
+        "required": {
+          "ckpt_name": {
+            "type": {
+              "combo": "nonempty",
+              "dynamic": true
+            }
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": null,
+      "return_types": [
+        "MODEL",
+        "CLIP",
+        "VAE"
+      ]
+    },
+    "LoadImageFromFolderMXD": {
+      "category": "MXD/Image",
+      "class": "LoadImageFromFolderMXD",
+      "display_name": "Load Image (From Folder) MXD",
+      "function": "load_image",
+      "input_types": {
+        "required": {
+          "image": {
+            "type": {
+              "combo": "nonempty",
+              "dynamic": true
+            }
+          },
+          "run_folder": {
+            "config": {
+              "default": false,
+              "tooltip": "When enabled, hitting Queue Prompt auto-queues every image in this file's folder, one after another, instead of just the selected file."
+            },
+            "type": "BOOLEAN"
+          },
+          "source": {
+            "config": {
+              "default": "outputs"
+            },
+            "type": {
+              "combo": [
+                "outputs",
+                "inputs"
+              ]
+            }
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "IMAGE",
+        "MASK",
+        "positive",
+        "negative",
+        "filename"
+      ],
+      "return_types": [
+        "IMAGE",
+        "MASK",
+        "STRING",
+        "STRING",
+        "STRING"
+      ]
+    },
+    "LoadImageWithPromptsMXD": {
+      "category": "image",
+      "class": "LoadImageWithPromptsMXD",
+      "display_name": "Load Image MXD",
+      "function": "load_image",
+      "input_types": {
+        "required": {
+          "image": {
+            "config": {
+              "default": "<dynamic-combo-default>",
+              "image_upload": true
+            },
+            "type": {
+              "combo": "nonempty",
+              "dynamic": true
+            }
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "IMAGE",
+        "MASK",
+        "positive",
+        "negative"
+      ],
+      "return_types": [
+        "IMAGE",
+        "MASK",
+        "STRING",
+        "STRING"
+      ]
+    },
+    "LoadLatent_I2V_MXD": {
+      "category": "MXD/Latents",
+      "class": "LoadLatent_I2V_MXD",
+      "display_name": "Load Latent MXD",
+      "function": "load",
+      "input_types": {
+        "required": {
+          "latent": {
+            "type": {
+              "combo": "empty",
+              "dynamic": true
+            }
+          },
+          "refresh_before_run": {
+            "config": {
+              "default": false,
+              "tooltip": "When run_folder is on, re-scan the latents folder for new files right before the queuing loop starts, instead of using the dropdown list as of whenever it was last populated. Use this when another workflow is still writing latents into this folder as you queue this one."
+            },
+            "type": "BOOLEAN"
+          },
+          "run_folder": {
+            "config": {
+              "default": false,
+              "tooltip": "When enabled, hitting Queue Prompt auto-queues every latent in this file's folder, one after another, instead of just the selected file."
+            },
+            "type": "BOOLEAN"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "shift",
+        "positive",
+        "negative",
+        "samples",
+        "steps",
+        "cfg",
+        "sampler_name",
+        "scheduler",
+        "end_at_step",
+        "filename_prefix",
+        "trim_latent",
+        "high_workflow"
+      ],
+      "return_types": [
+        "FLOAT",
+        "CONDITIONING",
+        "CONDITIONING",
+        "LATENT",
+        "INT",
+        "FLOAT",
+        "['euler', 'euler_cfg_pp', 'euler_ancestral', 'euler_ancestral_cfg_pp', 'heun', 'heunpp2', 'exp_heun_2_x0', 'exp_heun_2_x0_sde', 'dpm_2', 'dpm_2_ancestral', 'lms', 'dpm_fast', 'dpm_adaptive', 'dpmpp_2s_ancestral', 'dpmpp_2s_ancestral_cfg_pp', 'dpmpp_sde', 'dpmpp_sde_gpu', 'dpmpp_2m', 'dpmpp_2m_cfg_pp', 'dpmpp_2m_sde', 'dpmpp_2m_sde_gpu', 'dpmpp_2m_sde_heun', 'dpmpp_2m_sde_heun_gpu', 'dpmpp_3m_sde', 'dpmpp_3m_sde_gpu', 'ddpm', 'lcm', 'ipndm', 'ipndm_v', 'deis', 'res_multistep', 'res_multistep_cfg_pp', 'res_multistep_ancestral', 'res_multistep_ancestral_cfg_pp', 'gradient_estimation', 'gradient_estimation_cfg_pp', 'er_sde', 'seeds_2', 'seeds_3', 'sa_solver', 'sa_solver_pece', 'ddim', 'uni_pc', 'uni_pc_bh2']",
+        "['simple', 'sgm_uniform', 'karras', 'exponential', 'ddim_uniform', 'beta', 'normal', 'linear_quadratic', 'kl_optimal']",
+        "INT",
+        "STRING",
+        "INT",
+        "STRING"
+      ]
+    },
+    "LoadLatent_I2V_Pipe_MXD": {
+      "category": "MXD/Latents",
+      "class": "LoadLatent_I2V_Pipe_MXD",
+      "display_name": "Load Latent Pipe MXD",
+      "function": "load_pipe",
+      "input_types": {
+        "required": {
+          "latent": {
+            "type": {
+              "combo": "empty",
+              "dynamic": true
+            }
+          },
+          "refresh_before_run": {
+            "config": {
+              "default": false,
+              "tooltip": "When run_folder is on, re-scan the latents folder for new files right before the queuing loop starts, instead of using the dropdown list as of whenever it was last populated. Use this when another workflow is still writing latents into this folder as you queue this one."
+            },
+            "type": "BOOLEAN"
+          },
+          "run_folder": {
+            "config": {
+              "default": false,
+              "tooltip": "When enabled, hitting Queue Prompt auto-queues every latent in this file's folder, one after another, instead of just the selected file."
+            },
+            "type": "BOOLEAN"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "latent_pipe"
+      ],
+      "return_types": [
+        "MXD_LATENT_PIPE"
+      ]
+    },
+    "LoadLatents_FromFolder_I2V_MXD": {
+      "category": "MXD/Latents",
+      "class": "LoadLatents_FromFolder_I2V_MXD",
+      "display_name": "Load Latent Batch MXD",
+      "function": "load_batch_i2v",
+      "input_types": {
+        "required": {
+          "subfolder": {
+            "type": {
+              "combo": "nonempty",
+              "dynamic": true
+            }
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "shift",
+        "positive",
+        "negative",
+        "samples",
+        "steps",
+        "cfg",
+        "sampler_name",
+        "scheduler",
+        "end_at_step",
+        "filename_prefix",
+        "trim_latent"
+      ],
+      "return_types": [
+        "FLOAT",
+        "CONDITIONING",
+        "CONDITIONING",
+        "LATENT",
+        "INT",
+        "FLOAT",
+        "['euler', 'euler_cfg_pp', 'euler_ancestral', 'euler_ancestral_cfg_pp', 'heun', 'heunpp2', 'exp_heun_2_x0', 'exp_heun_2_x0_sde', 'dpm_2', 'dpm_2_ancestral', 'lms', 'dpm_fast', 'dpm_adaptive', 'dpmpp_2s_ancestral', 'dpmpp_2s_ancestral_cfg_pp', 'dpmpp_sde', 'dpmpp_sde_gpu', 'dpmpp_2m', 'dpmpp_2m_cfg_pp', 'dpmpp_2m_sde', 'dpmpp_2m_sde_gpu', 'dpmpp_2m_sde_heun', 'dpmpp_2m_sde_heun_gpu', 'dpmpp_3m_sde', 'dpmpp_3m_sde_gpu', 'ddpm', 'lcm', 'ipndm', 'ipndm_v', 'deis', 'res_multistep', 'res_multistep_cfg_pp', 'res_multistep_ancestral', 'res_multistep_ancestral_cfg_pp', 'gradient_estimation', 'gradient_estimation_cfg_pp', 'er_sde', 'seeds_2', 'seeds_3', 'sa_solver', 'sa_solver_pece', 'ddim', 'uni_pc', 'uni_pc_bh2']",
+        "['simple', 'sgm_uniform', 'karras', 'exponential', 'ddim_uniform', 'beta', 'normal', 'linear_quadratic', 'kl_optimal']",
+        "INT",
+        "STRING",
+        "INT"
+      ]
+    },
+    "LoadLatents_FromFolder_I2V_Pipe_MXD": {
+      "category": "MXD/Latents",
+      "class": "LoadLatents_FromFolder_I2V_Pipe_MXD",
+      "display_name": "Load Latent Batch Pipe MXD",
+      "function": "load_batch_pipe",
+      "input_types": {
+        "required": {
+          "subfolder": {
+            "type": {
+              "combo": "nonempty",
+              "dynamic": true
+            }
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "latent_pipe"
+      ],
+      "return_types": [
+        "MXD_LATENT_PIPE"
+      ]
+    },
+    "LoadVideoFromFolderMXD": {
+      "category": "MXD/Video",
+      "class": "LoadVideoFromFolderMXD",
+      "display_name": "Load Video (From Folder) MXD",
+      "function": "load_video",
+      "input_types": {
+        "required": {
+          "run_folder": {
+            "config": {
+              "default": false,
+              "tooltip": "When enabled, hitting Queue Prompt auto-queues every video in this file's folder, one after another, instead of just the selected file."
+            },
+            "type": "BOOLEAN"
+          },
+          "source": {
+            "config": {
+              "default": "outputs"
+            },
+            "type": {
+              "combo": [
+                "outputs",
+                "inputs"
+              ]
+            }
+          },
+          "video": {
+            "type": {
+              "combo": "nonempty",
+              "dynamic": true
+            }
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "VIDEO",
+        "filename"
+      ],
+      "return_types": [
+        "VIDEO",
+        "STRING"
+      ]
+    },
+    "LoadVideoMXD": {
+      "category": "image/video",
+      "class": "LoadVideoMXD",
+      "display_name": "Load Video MXD",
+      "function": "load",
+      "input_types": {
+        "required": {
+          "file": {
+            "config": {
+              "remote": {
+                "control_after_refresh": "first",
+                "refresh_button": true,
+                "route": "/mxd/videos/input"
+              },
+              "video_upload": true
+            },
+            "type": "COMBO"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "video",
+        "video_path"
+      ],
+      "return_types": [
+        "VIDEO",
+        "STRING"
+      ]
+    },
+    "Lora Loader MXD": {
+      "category": "mxd",
+      "class": "MxdPowerLoraLoader",
+      "display_name": "Lora Loader MXD",
+      "function": "load_loras",
+      "input_types": {
+        "hidden": {},
+        "optional": {
+          "clip": {
+            "type": "CLIP"
+          },
+          "model": {
+            "type": "MODEL"
+          }
+        },
+        "required": {}
+      },
+      "output_node": false,
+      "return_names": [
+        "MODEL",
+        "CLIP"
+      ],
+      "return_types": [
+        "MODEL",
+        "CLIP"
+      ]
+    },
+    "MXDCharacterCreate": {
+      "category": "MXD/Character",
+      "class": "MXDCharacterCreate",
+      "display_name": "Character Create MXD",
+      "function": "run",
+      "input_types": {
+        "required": {
+          "character_name": {
+            "config": {
+              "default": "",
+              "multiline": false
+            },
+            "type": "STRING"
+          },
+          "character_prompt": {
+            "config": {
+              "default": "",
+              "multiline": true
+            },
+            "type": "STRING"
+          }
+        }
+      },
+      "output_node": true,
+      "return_names": [
+        "status"
+      ],
+      "return_types": [
+        "STRING"
+      ]
+    },
+    "MXDCharacterEditDelete": {
+      "category": "MXD/Character",
+      "class": "MXDCharacterEditDelete",
+      "display_name": "Character Edit/Delete MXD",
+      "function": "run",
+      "input_types": {
+        "required": {
+          "action": {
+            "config": {
+              "default": "load_character"
+            },
+            "type": {
+              "combo": [
+                "load_character",
+                "edit_character",
+                "delete_character"
+              ]
+            }
+          },
+          "character_prompt": {
+            "config": {
+              "default": "",
+              "multiline": true,
+              "tooltip": "Used when action=edit_character."
+            },
+            "type": "STRING"
+          },
+          "selected_character": {
+            "config": {
+              "default": "<dynamic-combo-default>",
+              "tooltip": "Choose a saved character. Use the refresh button to update this list."
+            },
+            "type": {
+              "combo": "nonempty",
+              "dynamic": true
+            }
+          }
+        }
+      },
+      "output_node": true,
+      "return_names": [
+        "character_prompt"
+      ],
+      "return_types": [
+        "STRING"
+      ]
+    },
+    "MXDCharacterPromptEncode": {
+      "category": "MXD/Character",
+      "class": "MXDCharacterPromptEncode",
+      "display_name": "Character Prompt Encode MXD",
+      "function": "encode",
+      "input_types": {
+        "required": {
+          "character_handling": {
+            "config": {
+              "default": "separate_with_break"
+            },
+            "type": {
+              "combo": [
+                "separate_with_break",
+                "combine_conditioning",
+                "single_prompt"
+              ]
+            }
+          },
+          "clip": {
+            "type": "CLIP"
+          },
+          "prompt": {
+            "config": {
+              "default": "",
+              "dynamicPrompts": true,
+              "multiline": true
+            },
+            "type": "STRING"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "conditioning",
+        "prompt_with_character_text"
+      ],
+      "return_types": [
+        "CONDITIONING",
+        "STRING"
+      ]
+    },
+    "PadImageForOutpaintingMXD": {
+      "category": "image/transform",
+      "class": "PadImageForOutpaintingMXD",
+      "display_name": "Pad Image for Outpainting MXD",
+      "function": "expand_image",
+      "input_types": {
+        "required": {
+          "bottom": {
+            "config": {
+              "default": 0,
+              "max": 16384,
+              "min": 0,
+              "step": 2
+            },
+            "type": "INT"
+          },
+          "image": {
+            "type": "IMAGE"
+          },
+          "left": {
+            "config": {
+              "default": 0,
+              "max": 16384,
+              "min": 0,
+              "step": 2
+            },
+            "type": "INT"
+          },
+          "right": {
+            "config": {
+              "default": 0,
+              "max": 16384,
+              "min": 0,
+              "step": 2
+            },
+            "type": "INT"
+          },
+          "round_to": {
+            "config": {
+              "default": "16"
+            },
+            "type": {
+              "combo": [
+                "None",
+                "2",
+                "8",
+                "16",
+                "32",
+                "64"
+              ]
+            }
+          },
+          "top": {
+            "config": {
+              "default": 0,
+              "max": 16384,
+              "min": 0,
+              "step": 2
+            },
+            "type": "INT"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": null,
+      "return_types": [
+        "IMAGE",
+        "MASK"
+      ]
+    },
+    "Place Image By Mask": {
+      "category": "MXD/Image",
+      "class": "PlaceImageByMask",
+      "display_name": "Place Image by Mask MXD",
+      "function": "place_image",
+      "input_types": {
+        "optional": {
+          "maintain_aspect_ratio": {
+            "config": {
+              "default": true
+            },
+            "type": "BOOLEAN"
+          }
+        },
+        "required": {
+          "base_image": {
+            "type": "IMAGE"
+          },
+          "mask": {
+            "type": "MASK"
+          },
+          "overlay_image": {
+            "type": "IMAGE"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": null,
+      "return_types": [
+        "IMAGE"
+      ]
+    },
+    "PreviewVideoMXD": {
+      "category": "image/video",
+      "class": "PreviewVideoMXD",
+      "display_name": "Preview Video MXD",
+      "function": "EXECUTE_NORMALIZED",
+      "input_types": {
+        "hidden": {
+          "extra_pnginfo": {
+            "type": "EXTRA_PNGINFO"
+          },
+          "prompt": {
+            "type": "PROMPT"
+          }
+        },
+        "required": {
+          "input_video": {
+            "config": {
+              "tooltip": "Video to preview."
+            },
+            "type": "VIDEO"
+          }
+        }
+      },
+      "output_node": true,
+      "return_names": [
+        "output_video"
+      ],
+      "return_types": [
+        "VIDEO"
+      ]
+    },
+    "Prompt With Guidance (Flux)": {
+      "category": "MXD/conditioning",
+      "class": "PromptWithGuidance",
+      "display_name": "Prompt with Flux Guidance MXD",
+      "function": "encode_and_guide",
+      "input_types": {
+        "required": {
+          "clip": {
+            "config": {
+              "tooltip": "The CLIP model used for encoding the text."
+            },
+            "type": "CLIP"
+          },
+          "guidance": {
+            "config": {
+              "default": 3.5,
+              "max": 100.0,
+              "min": 0.0,
+              "step": 0.1
+            },
+            "type": "FLOAT"
+          },
+          "text": {
+            "config": {
+              "dynamicPrompts": true,
+              "multiline": true
+            },
+            "type": "STRING"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": null,
+      "return_types": [
+        "CONDITIONING"
+      ]
+    },
+    "QuadrupleCLIPLoaderUnified": {
+      "category": "advanced/loaders",
+      "class": "QuadrupleCLIPLoaderUnified",
+      "display_name": "Smart Quad CLIP Loader MXD",
+      "function": "load_clip",
+      "input_types": {
+        "required": {
+          "clip_name1": {
+            "type": {
+              "combo": "nonempty",
+              "dynamic": true
+            }
+          },
+          "clip_name2": {
+            "type": {
+              "combo": "nonempty",
+              "dynamic": true
+            }
+          },
+          "clip_name3": {
+            "type": {
+              "combo": "nonempty",
+              "dynamic": true
+            }
+          },
+          "clip_name4": {
+            "type": {
+              "combo": "nonempty",
+              "dynamic": true
+            }
+          },
+          "type": {
+            "type": {
+              "combo": [
+                "stable_diffusion",
+                "stable_cascade",
+                "sd3",
+                "stable_audio",
+                "mochi",
+                "ltxv",
+                "pixart",
+                "cosmos",
+                "lumina2",
+                "wan",
+                "hidream",
+                "chroma",
+                "ace",
+                "omnigen2",
+                "qwen_image",
+                "hunyuan_image",
+                "flux2",
+                "ovis",
+                "longcat_image"
+              ]
+            }
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": null,
+      "return_types": [
+        "CLIP"
+      ]
+    },
+    "QwenImageEditSingleMXD": {
+      "category": "MXD/conditioning",
+      "class": "QwenImageEditSingleMXD",
+      "display_name": "Qwen Image Edit + Latent MXD",
+      "function": "EXECUTE_NORMALIZED",
+      "input_types": {
+        "optional": {
+          "image": {
+            "config": {},
+            "type": "IMAGE"
+          },
+          "vae": {
+            "config": {},
+            "type": "VAE"
+          }
+        },
+        "required": {
+          "batch_size": {
+            "config": {
+              "default": 1,
+              "max": 4096,
+              "min": 1
+            },
+            "type": "INT"
+          },
+          "clip": {
+            "config": {},
+            "type": "CLIP"
+          },
+          "prompt": {
+            "config": {
+              "dynamicPrompts": true,
+              "multiline": true
+            },
+            "type": "STRING"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "CONDITIONING",
+        "LATENT"
+      ],
+      "return_types": [
+        "CONDITIONING",
+        "LATENT"
+      ]
+    },
+    "QwenImageEditTripleMXD": {
+      "category": "advanced/conditioning",
+      "class": "QwenImageEditTripleMXD",
+      "display_name": "Qwen Image Edit Prompt MXD (Triple)",
+      "function": "EXECUTE_NORMALIZED",
+      "input_types": {
+        "optional": {
+          "image1": {
+            "config": {},
+            "type": "IMAGE"
+          },
+          "image2": {
+            "config": {},
+            "type": "IMAGE"
+          },
+          "image3": {
+            "config": {},
+            "type": "IMAGE"
+          },
+          "vae": {
+            "config": {},
+            "type": "VAE"
+          }
+        },
+        "required": {
+          "batch_size": {
+            "config": {
+              "default": 1,
+              "max": 4096,
+              "min": 1
+            },
+            "type": "INT"
+          },
+          "clip": {
+            "config": {},
+            "type": "CLIP"
+          },
+          "prompt": {
+            "config": {
+              "dynamicPrompts": true,
+              "multiline": true
+            },
+            "type": "STRING"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "CONDITIONING",
+        "LATENT"
+      ],
+      "return_types": [
+        "CONDITIONING",
+        "LATENT"
+      ]
+    },
+    "SDXLResolutionMatcher": {
+      "category": "MXD/Latent",
+      "class": "SDXLResolutionMatcher",
+      "display_name": "SDXL Resolution Matcher MXD",
+      "function": "match_resolution",
+      "input_types": {
+        "required": {
+          "image": {
+            "type": "IMAGE"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "resolution",
+        "vertical"
+      ],
+      "return_types": [
+        "['Square (1:1) 1024x1024', 'Standard (4:3) 1152x896', 'Landscape (3:2) 1216x832', 'Widescreen (16:9) 1344x768', 'Ultra-Wide (21:9) 1536x640']",
+        "BOOLEAN"
+      ]
+    },
+    "Save Image MXD": {
+      "category": "MXD/Image",
+      "class": "SaveImage_MXD",
+      "display_name": "Save Image MXD",
+      "function": "save",
+      "input_types": {
+        "hidden": {
+          "extra_pnginfo": {
+            "type": "EXTRA_PNGINFO"
+          },
+          "prompt": {
+            "type": "PROMPT"
+          }
+        },
+        "optional": {
+          "embed_workflow": {
+            "config": {
+              "default": true,
+              "tooltip": "Embed workflow metadata when saving PNG previews/files."
+            },
+            "type": "BOOLEAN"
+          }
+        },
+        "required": {
+          "filename_prefix": {
+            "config": {
+              "default": "ComfyUI",
+              "tooltip": "File name prefix. Tip: you can use a subfolder like 'tests/my_run'."
+            },
+            "type": "STRING"
+          },
+          "images": {
+            "config": {
+              "tooltip": "Images to preview and/or save."
+            },
+            "type": "IMAGE"
+          },
+          "mode": {
+            "config": {
+              "default": "Save + Preview",
+              "tooltip": "Choose whether to write files to disk, only preview, or save quietly."
+            },
+            "type": {
+              "combo": [
+                "Save + Preview",
+                "Save Only",
+                "Preview only"
+              ]
+            }
+          }
+        }
+      },
+      "output_node": true,
+      "return_names": null,
+      "return_types": []
+    },
+    "SaveCheckpointMXD": {
+      "category": "MXD/Utils",
+      "class": "SaveCheckpointMXD",
+      "display_name": "Save Checkpoint MXD",
+      "function": "save",
+      "input_types": {
+        "hidden": {
+          "extra_pnginfo": {
+            "type": "EXTRA_PNGINFO"
+          },
+          "prompt": {
+            "type": "PROMPT"
+          }
+        },
+        "required": {
+          "clip": {
+            "type": "CLIP"
+          },
+          "filename_prefix": {
+            "config": {
+              "default": "checkpoints/ComfyUI"
+            },
+            "type": "STRING"
+          },
+          "model": {
+            "type": "MODEL"
+          },
+          "vae": {
+            "type": "VAE"
+          }
+        }
+      },
+      "output_node": true,
+      "return_names": null,
+      "return_types": []
+    },
+    "SaveLatent_I2V_MXD": {
+      "category": "MXD/Latents",
+      "class": "SaveLatent_I2V_MXD",
+      "display_name": "Save Latent MXD",
+      "function": "save_only",
+      "input_types": {
+        "hidden": {
+          "extra_pnginfo": {
+            "type": "EXTRA_PNGINFO"
+          },
+          "prompt": {
+            "type": "PROMPT"
+          },
+          "unique_id": {
+            "type": "UNIQUE_ID"
+          }
+        },
+        "optional": {
+          "trim_latent": {
+            "config": {
+              "default": 0,
+              "max": 10000,
+              "min": 0,
+              "step": 1,
+              "tooltip": "VACE 2.2 trim_latent value to preserve with this latent. Usually 0 or 1. Ignored for t2v/i2v."
+            },
+            "type": "INT"
+          }
+        },
+        "required": {
+          "filename_prefix": {
+            "config": {
+              "default": "ComfyUI",
+              "tooltip": "Prefix for saved files"
+            },
+            "type": "STRING"
+          },
+          "negative": {
+            "config": {
+              "tooltip": "Negative CONDITIONING to save alongside the latent."
+            },
+            "type": "CONDITIONING"
+          },
+          "positive": {
+            "config": {
+              "tooltip": "Positive CONDITIONING to save alongside the latent."
+            },
+            "type": "CONDITIONING"
+          },
+          "samples": {
+            "config": {
+              "tooltip": "Latent to save."
+            },
+            "type": "LATENT"
+          }
+        }
+      },
+      "output_node": true,
+      "return_names": null,
+      "return_types": []
+    },
+    "SaveVideoMXD": {
+      "category": "image/video",
+      "class": "SaveVideoMXD",
+      "display_name": "Save Video MXD",
+      "function": "EXECUTE_NORMALIZED",
+      "input_types": {
+        "hidden": {
+          "extra_pnginfo": {
+            "type": "EXTRA_PNGINFO"
+          },
+          "prompt": {
+            "type": "PROMPT"
+          }
+        },
+        "optional": {
+          "high_workflow": {
+            "config": {
+              "forceInput": true,
+              "multiline": false,
+              "tooltip": "Connect a Load Latent node's 'high_workflow' output here to carry the high-noise stage's workflow into this video's metadata."
+            },
+            "type": "STRING"
+          }
+        },
+        "required": {
+          "codec": {
+            "config": {
+              "default": "auto",
+              "multiselect": false,
+              "options": [
+                "auto",
+                "h264"
+              ],
+              "tooltip": "The codec to use for the video."
+            },
+            "type": "COMBO"
+          },
+          "embed_workflow": {
+            "config": {
+              "default": true,
+              "label_off": "skip",
+              "label_on": "embed",
+              "tooltip": "When high_workflow is connected, merge it into this video's embedded workflow so dragging the final video into ComfyUI shows both the high-noise stage and this stage together."
+            },
+            "type": "BOOLEAN"
+          },
+          "filename_prefix": {
+            "config": {
+              "default": "video/ComfyUI",
+              "multiline": false,
+              "tooltip": "The prefix for the file to save. This may include formatting information such as %date:yyyy-MM-dd% or %Empty Latent Image.width% to include values from nodes."
+            },
+            "type": "STRING"
+          },
+          "format": {
+            "config": {
+              "default": "auto",
+              "multiselect": false,
+              "options": [
+                "auto",
+                "mp4"
+              ],
+              "tooltip": "The format to save the video as."
+            },
+            "type": "COMBO"
+          },
+          "video": {
+            "config": {
+              "tooltip": "The video to save."
+            },
+            "type": "VIDEO"
+          }
+        }
+      },
+      "output_node": true,
+      "return_names": [],
+      "return_types": []
+    },
+    "Sdxl Empty Latent Image": {
+      "category": "MXD/Latent",
+      "class": "SdxlEmptyLatentImage",
+      "display_name": "SDXL Empty Latent Image MXD",
+      "function": "generate",
+      "input_types": {
+        "required": {
+          "batch_size": {
+            "config": {
+              "default": 1,
+              "max": 4096,
+              "min": 1,
+              "tooltip": "The number of latent images in the batch."
+            },
+            "type": "INT"
+          },
+          "resolution": {
+            "type": {
+              "combo": [
+                "Square (1:1) 1024x1024",
+                "Standard (4:3) 1152x896",
+                "Landscape (3:2) 1216x832",
+                "Widescreen (16:9) 1344x768",
+                "Ultra-Wide (21:9) 1536x640"
+              ]
+            }
+          },
+          "vertical": {
+            "config": {
+              "default": false
+            },
+            "type": "BOOLEAN"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": null,
+      "return_types": [
+        "LATENT"
+      ]
+    },
+    "SmartCropByMaskMXD": {
+      "category": "image/transform",
+      "class": "SmartCropByMaskMXD",
+      "display_name": "Smart Crop by Mask MXD",
+      "function": "crop",
+      "input_types": {
+        "required": {
+          "image": {
+            "type": "IMAGE"
+          },
+          "mask": {
+            "type": "MASK"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "image"
+      ],
+      "return_types": [
+        "IMAGE"
+      ]
+    },
+    "TripleCLIPLoaderUnified": {
+      "category": "advanced/loaders",
+      "class": "TripleCLIPLoaderUnified",
+      "display_name": "Smart Triple CLIP Loader MXD",
+      "function": "load_clip",
+      "input_types": {
+        "required": {
+          "clip_name1": {
+            "type": {
+              "combo": "nonempty",
+              "dynamic": true
+            }
+          },
+          "clip_name2": {
+            "type": {
+              "combo": "nonempty",
+              "dynamic": true
+            }
+          },
+          "clip_name3": {
+            "type": {
+              "combo": "nonempty",
+              "dynamic": true
+            }
+          },
+          "type": {
+            "type": {
+              "combo": [
+                "stable_diffusion",
+                "stable_cascade",
+                "sd3",
+                "stable_audio",
+                "mochi",
+                "ltxv",
+                "pixart",
+                "cosmos",
+                "lumina2",
+                "wan",
+                "hidream",
+                "chroma",
+                "ace",
+                "omnigen2",
+                "qwen_image",
+                "hunyuan_image",
+                "flux2",
+                "ovis",
+                "longcat_image"
+              ]
+            }
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": null,
+      "return_types": [
+        "CLIP"
+      ]
+    },
+    "UNETLoaderUnified": {
+      "category": "advanced/loaders",
+      "class": "UNETLoaderUnified",
+      "display_name": "Smart Model Loader MXD",
+      "function": "load_unet",
+      "input_types": {
+        "required": {
+          "unet_name": {
+            "type": {
+              "combo": "nonempty",
+              "dynamic": true
+            }
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": null,
+      "return_types": [
+        "MODEL"
+      ]
+    },
+    "Video Comparer MXD": {
+      "category": "MXD/video",
+      "class": "MxdVideoComparer",
+      "display_name": "Video Comparer MXD",
+      "function": "compare_videos",
+      "input_types": {
+        "optional": {
+          "original_video": {
+            "config": {
+              "tooltip": "Original video for comparison."
+            },
+            "type": "VIDEO"
+          }
+        },
+        "required": {
+          "new_video": {
+            "config": {
+              "tooltip": "New video to compare. This output is passed through."
+            },
+            "type": "VIDEO"
+          }
+        }
+      },
+      "output_node": true,
+      "return_names": [
+        "new_video"
+      ],
+      "return_types": [
+        "VIDEO"
+      ]
+    },
+    "WAN22_I2V_Image_Scaler_MXD": {
+      "category": "image/processing",
+      "class": "WAN22_I2V_Image_Scaler_MXD",
+      "display_name": "Image Scaler Wan 2.2 I2V MXD",
+      "function": "scale",
+      "input_types": {
+        "required": {
+          "aspect_mode": {
+            "config": {
+              "default": "Auto",
+              "tooltip": "Auto picks wide/tall/square from the source. Use Square/Tall/Wide to force the target bucket shape."
+            },
+            "type": {
+              "combo": [
+                "Auto",
+                "Tall",
+                "Wide",
+                "Square"
+              ]
+            }
+          },
+          "crop_to_fit": {
+            "config": {
+              "default": true,
+              "label_off": "Closest Fit (No Crop)",
+              "label_on": "Perfect Fit (Crops Edges)"
+            },
+            "type": "BOOLEAN"
+          },
+          "image": {
+            "type": "IMAGE"
+          },
+          "tier": {
+            "config": {
+              "default": "Auto"
+            },
+            "type": {
+              "combo": [
+                "Auto",
+                "480p",
+                "720p"
+              ]
+            }
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": null,
+      "return_types": [
+        "IMAGE"
+      ]
+    },
+    "WAN22_I2V_Match_Resolution_MXD": {
+      "category": "image/processing",
+      "class": "WAN22_I2V_Match_Resolution_MXD",
+      "display_name": "Match Resolution Wan 2.2 I2V MXD",
+      "function": "match_resolution",
+      "input_types": {
+        "required": {
+          "enforce_wan_bucket": {
+            "config": {
+              "default": false,
+              "label_off": "No WAN Validation",
+              "label_on": "Validate WAN Bucket",
+              "tooltip": "If enabled, reference_image must already be a WAN 2.2 bucket size."
+            },
+            "type": "BOOLEAN"
+          },
+          "image_to_match": {
+            "config": {
+              "tooltip": "Image or batch to resize using the reference image resolution."
+            },
+            "type": "IMAGE"
+          },
+          "match_mode": {
+            "config": {
+              "default": "crop_to_match",
+              "tooltip": "crop_to_match = exact size via cover+center crop; fit_inside_only = no crop, may be smaller; stretch_exact = exact size with distortion."
+            },
+            "type": {
+              "combo": [
+                "crop_to_match",
+                "fit_inside_only",
+                "stretch_exact"
+              ]
+            }
+          },
+          "reference_image": {
+            "config": {
+              "tooltip": "Reference size source (usually the first image after WAN bucket scaling)."
+            },
+            "type": "IMAGE"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "matched_image"
+      ],
+      "return_types": [
+        "IMAGE"
+      ]
+    },
+    "WAN22_I2V_Video_Prep_MXD": {
+      "category": "MXD/video",
+      "class": "WAN22_I2V_Video_Prep_MXD",
+      "display_name": "WAN 2.2 Video Prep I2V MXD",
+      "function": "prepare",
+      "input_types": {
+        "required": {
+          "aspect_mode": {
+            "config": {
+              "default": "Auto",
+              "tooltip": "Auto picks wide/tall/square from the source. Use Square/Tall/Wide to force the target bucket shape."
+            },
+            "type": {
+              "combo": [
+                "Auto",
+                "Tall",
+                "Wide",
+                "Square"
+              ]
+            }
+          },
+          "crop_to_fit": {
+            "config": {
+              "default": true,
+              "label_off": "Closest Fit (No Crop)",
+              "label_on": "Perfect Fit (Crops Edges)"
+            },
+            "type": "BOOLEAN"
+          },
+          "force_fps": {
+            "config": {
+              "default": false,
+              "label_off": "Keep Source FPS",
+              "label_on": "Force FPS",
+              "tooltip": "When enabled, resample frames (drop/duplicate) and set exact target fps."
+            },
+            "type": "BOOLEAN"
+          },
+          "target_fps": {
+            "config": {
+              "default": 16,
+              "max": 1000,
+              "min": 1,
+              "step": 1,
+              "tooltip": "Used when Force FPS is enabled. Output video fps will be set exactly to this value."
+            },
+            "type": "INT"
+          },
+          "tier": {
+            "config": {
+              "default": "Auto"
+            },
+            "type": {
+              "combo": [
+                "Auto",
+                "480p",
+                "720p"
+              ]
+            }
+          },
+          "video": {
+            "type": "VIDEO"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "scaled_video",
+        "images",
+        "fps"
+      ],
+      "return_types": [
+        "VIDEO",
+        "IMAGE",
+        "FLOAT"
+      ]
+    },
+    "Wan22FirstLastImageToVideoMXD": {
+      "category": "conditioning/video_models",
+      "class": "Wan22FirstLastImageToVideoMXD",
+      "display_name": "Wan 2.2 I2V First & Last Frame MXD",
+      "function": "EXECUTE_NORMALIZED",
+      "input_types": {
+        "optional": {
+          "end_image": {
+            "config": {},
+            "type": "IMAGE"
+          },
+          "start_image": {
+            "config": {},
+            "type": "IMAGE"
+          }
+        },
+        "required": {
+          "batch_size": {
+            "config": {
+              "default": 1,
+              "max": 4096,
+              "min": 1
+            },
+            "type": "INT"
+          },
+          "length": {
+            "config": {
+              "default": 81,
+              "max": 16384,
+              "min": 1,
+              "step": 4
+            },
+            "type": "INT"
+          },
+          "negative": {
+            "config": {},
+            "type": "CONDITIONING"
+          },
+          "positive": {
+            "config": {},
+            "type": "CONDITIONING"
+          },
+          "vae": {
+            "config": {},
+            "type": "VAE"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "positive",
+        "negative",
+        "latent"
+      ],
+      "return_types": [
+        "CONDITIONING",
+        "CONDITIONING",
+        "LATENT"
+      ]
+    },
+    "Wan22ImageToVideoMXD": {
+      "category": "conditioning/video_models",
+      "class": "Wan22ImageToVideoMXD",
+      "display_name": "Wan 2.2 Image to Video MXD",
+      "function": "EXECUTE_NORMALIZED",
+      "input_types": {
+        "required": {
+          "batch_size": {
+            "config": {
+              "default": 1,
+              "max": 4096,
+              "min": 1
+            },
+            "type": "INT"
+          },
+          "length": {
+            "config": {
+              "default": 81,
+              "max": 16384,
+              "min": 1,
+              "step": 4
+            },
+            "type": "INT"
+          },
+          "negative": {
+            "config": {},
+            "type": "CONDITIONING"
+          },
+          "positive": {
+            "config": {},
+            "type": "CONDITIONING"
+          },
+          "start_image": {
+            "config": {},
+            "type": "IMAGE"
+          },
+          "vae": {
+            "config": {},
+            "type": "VAE"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "positive",
+        "negative",
+        "latent"
+      ],
+      "return_types": [
+        "CONDITIONING",
+        "CONDITIONING",
+        "LATENT"
+      ]
+    },
+    "Wan2_2EmptyLatentImageMXD": {
+      "category": "WAN2.2/Latent",
+      "class": "Wan2_2EmptyLatentImageMXD",
+      "display_name": "Wan 2.2 Empty Latent Image MXD",
+      "function": "generate",
+      "input_types": {
+        "required": {
+          "batch_size": {
+            "config": {
+              "default": 1,
+              "max": 4096,
+              "min": 1,
+              "tooltip": "Number of latents to generate."
+            },
+            "type": "INT"
+          },
+          "resolution": {
+            "config": {
+              "default": "Square (1:1) 960×960",
+              "tooltip": "Select target resolution preset."
+            },
+            "type": {
+              "combo": [
+                "— 720p —",
+                "Widescreen (16:9) 1280×720",
+                "— 480p —",
+                "Widescreen (16:9) 832×480",
+                "Square (1:1) 624×624"
+              ]
+            }
+          },
+          "vertical": {
+            "config": {
+              "default": false,
+              "label_off": "Landscape",
+              "label_on": "Vertical",
+              "tooltip": "Swap width/height for vertical orientation."
+            },
+            "type": "BOOLEAN"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": null,
+      "return_types": [
+        "LATENT"
+      ]
+    },
+    "ZImageTurboEmptyLatentImage": {
+      "category": "MXD/Latent",
+      "class": "ZImageTurboEmptyLatentImage",
+      "display_name": "ZIT Empty Latent Image MXD",
+      "function": "generate",
+      "input_types": {
+        "required": {
+          "batch_size": {
+            "config": {
+              "default": 1,
+              "max": 4096,
+              "min": 1,
+              "tooltip": "Number of latent images in the batch."
+            },
+            "type": "INT"
+          },
+          "resolution": {
+            "config": {
+              "default": "Square (1:1) 1024x1024"
+            },
+            "type": {
+              "combo": [
+                "— High Resolutions —",
+                "Square (1:1) 1536x1536",
+                "Photo (4:3) 1792x1344",
+                "Landscape (3:2) 1920x1280",
+                "Widescreen (16:9) 2048x1152",
+                "Ultrawide (21:9) 2304x1024",
+                "— Standard Resolutions —",
+                "Square (1:1) 1024x1024",
+                "Photo (4:3) 1152x896",
+                "Landscape (3:2) 1280x832",
+                "Widescreen (16:9) 1344x768",
+                "Ultrawide (21:9) 1536x640",
+                "— Low Resolutions —",
+                "Square (1:1) 512x512",
+                "Photo (4:3) 576x448",
+                "Landscape (3:2) 640x448",
+                "Widescreen (16:9) 704x384",
+                "Ultrawide (21:9) 768x320"
+              ]
+            }
+          },
+          "vertical": {
+            "config": {
+              "default": false,
+              "tooltip": "Swap width and height."
+            },
+            "type": "BOOLEAN"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": null,
+      "return_types": [
+        "LATENT"
+      ]
+    },
+    "wan22EmptyHunyuanLatentVideoMXD": {
+      "category": "latent/video",
+      "class": "wan22EmptyHunyuanLatentVideoMXD",
+      "display_name": "WAN2.2 Empty Latent Video MXD",
+      "function": "generate",
+      "input_types": {
+        "required": {
+          "batch_size": {
+            "config": {
+              "default": 1,
+              "max": 4096,
+              "min": 1
+            },
+            "type": "INT"
+          },
+          "length": {
+            "config": {
+              "default": 81,
+              "max": 16384,
+              "min": 1,
+              "step": 4
+            },
+            "type": "INT"
+          },
+          "resolution": {
+            "config": {
+              "default": "Widescreen (16:9) 832×480"
+            },
+            "type": {
+              "combo": [
+                "— 720p —",
+                "Widescreen (16:9) 1280×720",
+                "Square (1:1) 1024×1024",
+                "— 480p —",
+                "Widescreen (16:9) 832×480",
+                "Square (1:1) 624×624"
+              ]
+            }
+          },
+          "vertical": {
+            "config": {
+              "default": false,
+              "label_off": "Landscape",
+              "label_on": "Vertical"
+            },
+            "type": "BOOLEAN"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": null,
+      "return_types": [
+        "LATENT"
+      ]
+    }
+  }
+}
