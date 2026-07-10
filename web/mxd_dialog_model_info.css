@@ -24,7 +24,7 @@
   border-radius: 4px;
   line-height: 1;
   color: rgba(255, 255, 255, 0.85);
-  background: rgb(69, 92, 85);
+  background: color-mix(in srgb, var(--p-primary-color, rgb(69, 92, 85)) 45%, rgb(69, 92, 85));
   font-size: 14px;
   font-weight: bold;
   text-decoration: none;
@@ -91,12 +91,12 @@
 }
 .mxd-info-dialog .mxd-info-table td {
   position: relative;
-  border: 1px solid rgba(255, 255, 255, 0.25);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.25));
   padding: 0;
   vertical-align: top;
 }
 .mxd-info-dialog .mxd-info-table td:first-child {
-  background: rgba(255, 255, 255, 0.075);
+  background: var(--comfy-input-bg, rgba(255, 255, 255, 0.075));
   width: 10px;
 }
 .mxd-info-dialog .mxd-info-table td:first-child > *:first-child {
@@ -132,12 +132,13 @@
 }
 .mxd-info-dialog .mxd-info-table td > input, .mxd-info-dialog .mxd-info-table td > textarea {
   padding: 5px 10px;
-  border: 0;
-  box-shadow: inset 1px 1px 5px 0px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--p-primary-color, rgba(255, 255, 255, 0.25));
+  border-radius: 4px;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.35);
   font: inherit;
   appearance: none;
-  background: #fff;
-  color: #121212;
+  background: var(--comfy-input-bg, #2a2a2a);
+  color: var(--input-text, #eee);
   resize: vertical;
 }
 .mxd-info-dialog .mxd-info-table td > input:only-child, .mxd-info-dialog .mxd-info-table td > textarea:only-child {
@@ -236,7 +237,8 @@
   background: rgba(0, 0, 0, 0.2);
 }
 .mxd-info-dialog .mxd-info-table td > ul.mxd-info-trained-words-list > li.-mxd-is-selected {
-  background: rgb(42, 126, 193);
+  background: var(--p-primary-color, rgb(42, 126, 193));
+  color: var(--p-primary-contrast-color, rgba(255, 255, 255, 0.95));
 }
 .mxd-info-dialog .mxd-info-images {
   list-style: none;
@@ -323,7 +325,7 @@
 }
 .mxd-info-dialog .mxd-info-civitai-link {
   margin: 8px;
-  color: #eee;
+  color: var(--input-text, #eee);
 }
 .mxd-info-dialog .mxd-info-civitai-link a, .mxd-info-dialog .mxd-info-civitai-link a:hover, .mxd-info-dialog .mxd-info-civitai-link a:visited {
   color: inherit;

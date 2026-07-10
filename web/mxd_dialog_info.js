@@ -9,7 +9,14 @@ import {
   setAttributes,
 } from "./mxd_utils_dom.js";
 import { logoCivitai, link, pencilColored, diskColored, dotdotdot } from "./mxd_svgs.js";
-import { CHECKPOINT_INFO_SERVICE, LORA_INFO_SERVICE } from "./mxd_model_info_service.js";
+import {
+  CHECKPOINT_INFO_SERVICE,
+  CLIP_INFO_SERVICE,
+  LORA_INFO_SERVICE,
+  UNET_INFO_SERVICE,
+  resolveClipModelType,
+  resolveUnetModelType,
+} from "./mxd_model_info_service.js";
 import { mxdRuntime } from "./mxd_runtime.js";
 import { MenuButton } from "./mxd_menu.js";
 import { generateId, injectCss } from "./mxd_shared_utils.js";
@@ -42,6 +49,18 @@ class MxdInfoDialog extends MxdDialog {
     return { detail: { dirty: this.modifiedModelData } };
   }
 
+  async getModelInfo(file) {
+    return this.infoService.getInfo(file, false, false);
+  }
+
+  async refreshModelInfo(file) {
+    return this.infoService.refreshInfo(file);
+  }
+
+  getApiType(file) {
+    return "loras";
+  }
+
   attachEvents() {
     this.contentElement.addEventListener("click", async (e) => {
       const target = getClosestOrSelf(e.target, "[data-action]");
@@ -56,9 +75,16 @@ class MxdInfoDialog extends MxdDialog {
     if (!info?.file) return;
 
     if (action === "fetch-civitai") {
-      this.modelInfo = await this.refreshModelInfo(info.file);
-      this.setContent(this.getInfoContent());
-      this.setTitle(this.modelInfo?.name || this.modelInfo?.file || "Unknown");
+      target.setAttribute("disabled", "");
+      target.classList.add("-mxd-loading");
+      try {
+        this.modelInfo = await this.refreshModelInfo(info.file);
+        this.setContent(this.getInfoContent());
+        this.setTitle(this.modelInfo?.name || this.modelInfo?.file || "Unknown");
+      } finally {
+        target.removeAttribute("disabled");
+        target.classList.remove("-mxd-loading");
+      }
     } else if (action === "copy-trained-words") {
       const selected = queryAll(".-mxd-is-selected", target.closest("tr"));
       const text = selected.map((el) => el.getAttribute("data-word")).join(", ");
@@ -92,12 +118,12 @@ class MxdInfoDialog extends MxdDialog {
         const rowInput = $el(`${isTextarea ? "textarea" : 'input[type="text"]'}`, { value: td.textContent });
         rowInput.addEventListener("keydown", (evt) => {
           if (!isTextarea && evt.key === "Enter") {
-            const modified = saveEditableRow(info, tr, true);
+            const modified = saveEditableRow(this.infoService, info, tr, true);
             this.modifiedModelData = this.modifiedModelData || modified;
             evt.stopPropagation();
             evt.preventDefault();
           } else if (evt.key === "Escape") {
-            const modified = saveEditableRow(info, tr, false);
+            const modified = saveEditableRow(this.infoService, info, tr, false);
             this.modifiedModelData = this.modifiedModelData || modified;
             evt.stopPropagation();
             evt.preventDefault();
@@ -106,7 +132,7 @@ class MxdInfoDialog extends MxdDialog {
         appendChildren(empty(td), [rowInput]);
         rowInput.focus();
       } else if (target.nodeName.toLowerCase() === "button") {
-        const modified = saveEditableRow(info, tr, true);
+        const modified = saveEditableRow(this.infoService, info, tr, true);
         this.modifiedModelData = this.modifiedModelData || modified;
       }
       e?.preventDefault();
@@ -116,7 +142,7 @@ class MxdInfoDialog extends MxdDialog {
 
   getInfoContent() {
     const info = this.modelInfo || {};
-    const civitaiLink = info.links?.find((i) => i.includes("civitai.com/models"));
+    const civitaiLink = info.links?.find((i) => i.includes("civitai.com/models") || i.includes("civitai.red/models"));
     const html = `
       <ul class="mxd-info-area">
         <li title="Type" class="mxd-info-tag -type -type-${(info.type || "").toLowerCase()}"><span>${info.type || ""}</span></li>
@@ -160,7 +186,7 @@ class MxdInfoDialog extends MxdDialog {
           (img) => `
         <li>
           <figure>${
-            img.type === "video" ? `<video src="${img.url}" autoplay loop></video>` : `<img src="${img.url}" />`
+            img.type === "video" ? `<video src="${img.url}" muted loop controls playsinline preload="metadata"></video>` : `<img src="${img.url}" />`
           }
             <figcaption>${imgInfoField("", img.civitaiUrl ? `<a href="${img.civitaiUrl}" target="_blank">civitai${link}</a>` : undefined)}${imgInfoField("seed", img.seed)}${imgInfoField("steps", img.steps)}${imgInfoField("cfg", img.cfg)}${imgInfoField("sampler", img.sampler)}${imgInfoField("model", img.model)}${imgInfoField("positive", img.positive)}${imgInfoField("negative", img.negative)}</figcaption>
           </figure>
@@ -181,7 +207,8 @@ class MxdInfoDialog extends MxdDialog {
               label: "Open API JSON",
               callback: async () => {
                 if (this.modelInfo?.file) {
-                  window.open(`/loraloader-mxd/api/loras/info?file=${encodeURIComponent(this.modelInfo.file)}`);
+                  const apiType = this.getApiType(this.modelInfo.file);
+                  window.open(`/loraloader-mxd/api/${apiType}/info?file=${encodeURIComponent(this.modelInfo.file)}`);
                 }
               },
             },
@@ -189,7 +216,7 @@ class MxdInfoDialog extends MxdDialog {
               label: "Clear all local info",
               callback: async () => {
                 if (this.modelInfo?.file) {
-                  this.modelInfo = await LORA_INFO_SERVICE.clearFetchedInfo(this.modelInfo.file);
+                  this.modelInfo = await this.infoService.clearFetchedInfo(this.modelInfo.file);
                   this.setContent(this.getInfoContent());
                   this.setTitle(this.modelInfo?.name || this.modelInfo?.file || "Unknown");
                 }
@@ -200,27 +227,56 @@ class MxdInfoDialog extends MxdDialog {
       ],
     });
 
+    const videos = queryAll("video", div);
+    if (videos.length) {
+      const observer = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) {
+              entry.target.play().catch(() => {});
+            } else {
+              entry.target.pause();
+            }
+          }
+        },
+        { threshold: 0.5 },
+      );
+      for (const video of videos) observer.observe(video);
+    }
+
     return div;
   }
 }
 
 export class MxdLoraInfoDialog extends MxdInfoDialog {
-  async getModelInfo(file) {
-    return LORA_INFO_SERVICE.getInfo(file, false, false);
-  }
+  infoService = LORA_INFO_SERVICE;
 
-  async refreshModelInfo(file) {
-    return LORA_INFO_SERVICE.refreshInfo(file);
+  getApiType() {
+    return "loras";
   }
 }
 
 export class MxdCheckpointInfoDialog extends MxdInfoDialog {
-  async getModelInfo(file) {
-    return CHECKPOINT_INFO_SERVICE.getInfo(file, false, false);
-  }
+  infoService = CHECKPOINT_INFO_SERVICE;
 
-  async refreshModelInfo(file) {
-    return CHECKPOINT_INFO_SERVICE.refreshInfo(file);
+  getApiType() {
+    return "checkpoints";
+  }
+}
+
+export class MxdUnetInfoDialog extends MxdInfoDialog {
+  infoService = UNET_INFO_SERVICE;
+
+  getApiType(file) {
+    return resolveUnetModelType(file);
+  }
+}
+
+export class MxdClipInfoDialog extends MxdInfoDialog {
+  infoService = CLIP_INFO_SERVICE;
+
+  getApiType(file) {
+    return resolveClipModelType(file);
   }
 }
 
@@ -246,7 +302,7 @@ function getTrainedWordsMarkup(words) {
   return markup;
 }
 
-function saveEditableRow(info, tr, saving = true) {
+function saveEditableRow(infoService, info, tr, saving = true) {
   const fieldName = tr.dataset["fieldName"];
   const input = query("input,textarea", tr);
   let newValue = info[fieldName] ?? "";
@@ -260,7 +316,7 @@ function saveEditableRow(info, tr, saving = true) {
       }
       newValue = (Math.round(Number(newValue) * 100) / 100).toFixed(2);
     }
-    LORA_INFO_SERVICE.savePartialInfo(info.file, { [fieldName]: newValue });
+    infoService.savePartialInfo(info.file, { [fieldName]: newValue });
     modified = true;
   }
   tr.classList.remove("-mxd-editing");

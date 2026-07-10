@@ -1,11 +1,11 @@
 @charset "UTF-8";
 .mxd-dialog {
   outline: 0;
-  border: 0;
-  border-radius: 6px;
-  background: #414141;
-  color: #fff;
-  box-shadow: inset 1px 1px 0px rgba(255, 255, 255, 0.05), inset -1px -1px 0px rgba(0, 0, 0, 0.5), 2px 2px 20px rgb(0, 0, 0);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  border-radius: 8px;
+  background: var(--comfy-menu-bg, #414141);
+  color: var(--input-text, #fff);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
   max-width: 800px;
   box-sizing: border-box;
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
@@ -108,9 +108,9 @@
   display: inline-block;
   padding: 2px 4px;
   margin: 0px 2px;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.25));
+  border-radius: 4px;
+  background: var(--comfy-input-bg, rgba(255, 255, 255, 0.1));
 }
 
 .mxd-dialog-container-footer {

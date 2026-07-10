@@ -7,15 +7,20 @@ function getWidget(node, name) {
 }
 
 function hideWidget(widget) {
-    if (!widget._mxdOriginalComputeSize) {
+    if (widget._mxdOriginalType === undefined) {
+        widget._mxdOriginalType = widget.type;
         widget._mxdOriginalComputeSize = widget.computeSize;
     }
+    widget.type = "hidden";
     widget.hidden = true;
     widget.disabled = true;
-    widget.computeSize = () => [0, 0];
+    widget.computeSize = () => [0, -4];
 }
 
 function showWidget(widget) {
+    if (widget._mxdOriginalType !== undefined) {
+        widget.type = widget._mxdOriginalType;
+    }
     widget.hidden = false;
     widget.disabled = false;
     if (widget._mxdOriginalComputeSize) {
@@ -27,27 +32,13 @@ function resizeNodeToWidgets(node) {
     if (!node.computeSize || !node.setSize) {
         return;
     }
-    const computed = node.computeSize();
-    const currentWidth = node.size?.[0] ?? computed[0];
-    let requiredHeight = computed[1];
-    for (const widget of node.widgets ?? []) {
-        if (widget.hidden) {
-            continue;
-        }
-
-        const widgetY = Number.isFinite(widget.last_y) ? widget.last_y : 0;
-        let widgetHeight = 20;
-        try {
-            const size = widget.computeSize?.(currentWidth);
-            if (Array.isArray(size) && Number.isFinite(size[1])) {
-                widgetHeight = Math.max(widgetHeight, size[1]);
-            }
-        } catch (error) {
-            // Keep the fallback height.
-        }
-        requiredHeight = Math.max(requiredHeight, widgetY + widgetHeight + 8);
+    try {
+        const computed = node.computeSize();
+        const currentWidth = node.size?.[0] ?? computed[0];
+        node.setSize([Math.max(currentWidth, computed[0]), computed[1]]);
+    } catch (error) {
+        // Don't let a layout hiccup block the toggle/redraw.
     }
-    node.setSize([Math.max(currentWidth, computed[0]), Math.ceil(requiredHeight)]);
 }
 
 function scheduleResizeNodeToWidgets(node) {

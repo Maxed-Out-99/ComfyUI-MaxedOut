@@ -1,6 +1,7 @@
 class MxdApi {
   constructor(baseUrl) {
     this.getLorasPromise = null;
+    this.filenamesPromises = {};
     this.setBaseUrl(baseUrl);
   }
 
@@ -45,6 +46,33 @@ class MxdApi {
       this.getLorasPromise = this.fetchJson("/loras?format=details", { cache: "no-store" });
     }
     return this.getLorasPromise;
+  }
+
+  getFilenames(type, force = false) {
+    if (!this.filenamesPromises[type] || force) {
+      this.filenamesPromises[type] = this.fetchJson(`/${type}`, { cache: "no-store" });
+    }
+    return this.filenamesPromises[type];
+  }
+
+  async getUnetModelList(force = false) {
+    const [standard, gguf] = await Promise.all([
+      this.getFilenames("diffusion_models", force),
+      this.getFilenames("unet_gguf", force),
+    ]);
+    return [...new Set([...standard, ...gguf])].sort();
+  }
+
+  async getClipModelList(force = false) {
+    const [standard, gguf] = await Promise.all([
+      this.getFilenames("text_encoders", force),
+      this.getFilenames("clip_gguf", force),
+    ]);
+    return [...new Set([...standard, ...gguf])].sort();
+  }
+
+  getCheckpointList(force = false) {
+    return this.getFilenames("checkpoints", force);
   }
 
   async fetchApiJsonOrNull(route, options) {

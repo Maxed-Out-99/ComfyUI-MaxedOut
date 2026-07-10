@@ -1,0 +1,5 @@
+# Required for smart_loaders_mxd (GGUF model loading)
+gguf>=0.13.0
+# Optional - GGUF tokenizer reconstruction
+sentencepiece
+protobuf

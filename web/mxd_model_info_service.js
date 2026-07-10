@@ -2,8 +2,10 @@ import { mxdApi } from "./mxd_api.js";
 import { api } from "../../scripts/api.js";
 
 class BaseModelInfoService extends EventTarget {
-  constructor() {
+  constructor(modelInfoType, apiRefreshEventString) {
     super();
+    if (modelInfoType) this.modelInfoType = modelInfoType;
+    if (apiRefreshEventString) this.apiRefreshEventString = apiRefreshEventString;
     this.fileToInfo = new Map();
     this.init();
   }
@@ -67,5 +69,49 @@ class CheckpointInfoService extends BaseModelInfoService {
   modelInfoType = "checkpoints";
 }
 
+/** Dispatches to a per-file-type `BaseModelInfoService`, for loader nodes (like the Smart
+ * UNET/CLIP loaders) whose combo list mixes files that live under different folder_paths
+ * keys (e.g. plain .safetensors vs .gguf) depending on the chosen file's extension. */
+class DynamicModelInfoService {
+  constructor(resolveType) {
+    this.resolveType = resolveType;
+    this.servicesByType = new Map();
+  }
+
+  _serviceFor(file) {
+    const type = this.resolveType(file);
+    if (!this.servicesByType.has(type)) {
+      this.servicesByType.set(type, new BaseModelInfoService(type, `loraloader-mxd-refreshed-${type}-info`));
+    }
+    return this.servicesByType.get(type);
+  }
+
+  getInfo(file, refresh, light) {
+    return this._serviceFor(file).getInfo(file, refresh, light);
+  }
+
+  refreshInfo(file) {
+    return this._serviceFor(file).refreshInfo(file);
+  }
+
+  clearFetchedInfo(file) {
+    return this._serviceFor(file).clearFetchedInfo(file);
+  }
+
+  savePartialInfo(file, data) {
+    return this._serviceFor(file).savePartialInfo(file, data);
+  }
+}
+
+export function resolveUnetModelType(file) {
+  return String(file).toLowerCase().endsWith(".gguf") ? "unet_gguf" : "diffusion_models";
+}
+
+export function resolveClipModelType(file) {
+  return String(file).toLowerCase().endsWith(".gguf") ? "clip_gguf" : "text_encoders";
+}
+
 export const LORA_INFO_SERVICE = new LoraInfoService();
 export const CHECKPOINT_INFO_SERVICE = new CheckpointInfoService();
+export const UNET_INFO_SERVICE = new DynamicModelInfoService(resolveUnetModelType);
+export const CLIP_INFO_SERVICE = new DynamicModelInfoService(resolveClipModelType);

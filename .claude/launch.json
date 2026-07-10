@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "comfyui",
+      "runtimeExecutable": "C:\\Users\\user\\Documents\\ComfyUI\\.venv\\Scripts\\python.exe",
+      "runtimeArgs": [
+        "C:\\Users\\user\\AI\\ComfyUI\\resources\\ComfyUI\\main.py",
+        "--base-directory",
+        "C:\\Users\\user\\Documents\\ComfyUI",
+        "--listen",
+        "127.0.0.1",
+        "--port",
+        "8188"
+      ],
+      "port": 8188
+    }
+  ]
+}

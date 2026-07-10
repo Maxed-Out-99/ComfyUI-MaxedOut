@@ -68,6 +68,7 @@ app.registerExtension({
                 let totalCount = 0;
                 let workflowCount = 0;
                 const workflowPaths = [];
+                const workflowBlobs = [];
 
                 for (const file of zipFiles) {
                     console.log("Processing zip file:", file.name);
@@ -85,6 +86,13 @@ app.registerExtension({
                             const ext = get_ext(relativePath);
 
                             const promise = zipEntry.async("blob").then(async (blob) => {
+                                if (ext === "json") {
+                                    workflowCount++;
+                                    workflowPaths.push(relativePath);
+                                    workflowBlobs.push(blob);
+                                    return;
+                                }
+
                                 const targetPath = "workflows/" + relativePath;
                                 const url = `/api/userdata/${encodeURIComponent(targetPath)}?overwrite=true`;
 
@@ -96,10 +104,6 @@ app.registerExtension({
                                 if (res.ok) {
                                     count++;
                                     totalCount++;
-                                    if (ext === "json") {
-                                        workflowCount++;
-                                        workflowPaths.push(relativePath);
-                                    }
                                 } else {
                                     console.error("Failed to upload:", relativePath, res.statusText);
                                 }
@@ -115,7 +119,41 @@ app.registerExtension({
                     }
                 }
 
-                if (workflowCount > 0) {
+                let loadedSingleInMemory = false;
+                if (workflowCount === 1 && typeof app.handleFile === "function") {
+                    // Mirror vanilla ComfyUI's own json-drop behavior: load straight into the
+                    // graph via app.handleFile instead of writing to disk and forcing a reload.
+                    try {
+                        const relativePath = workflowPaths[0];
+                        const blob = workflowBlobs[0];
+                        const filename = relativePath.split("/").pop();
+                        const jsonFile = new File([blob], filename, { type: "application/json" });
+                        await app.handleFile(jsonFile);
+                        loadedSingleInMemory = true;
+                    } catch (err) {
+                        // app.handleFile is an internal API; fall back to the disk-upload
+                        // path below if a future ComfyUI build changes/removes it.
+                        console.error("app.handleFile failed, falling back to workflow upload:", err);
+                    }
+                }
+
+                if (!loadedSingleInMemory && workflowCount > 0) {
+                    await Promise.all(workflowPaths.map(async (relativePath, i) => {
+                        const targetPath = "workflows/" + relativePath;
+                        const url = `/api/userdata/${encodeURIComponent(targetPath)}?overwrite=true`;
+
+                        const res = await fetch(url, {
+                            method: "POST",
+                            body: workflowBlobs[i]
+                        });
+
+                        if (res.ok) {
+                            totalCount++;
+                        } else {
+                            console.error("Failed to upload:", relativePath, res.statusText);
+                        }
+                    }));
+
                     const sortedWorkflows = workflowPaths.slice().sort((a, b) => a.localeCompare(b));
                     const commonFolder = get_common_top_folder(sortedWorkflows) || "(Root)";
 

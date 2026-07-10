@@ -34,6 +34,9 @@ testing/
 userdata/
 local_notes/
 
+# Personal model storage root config (see model_storage_config.json.example)
+model_storage_config.json
+
 # ComfyUI local cache & configs
 ComfyUI/output/
 ComfyUI/input/

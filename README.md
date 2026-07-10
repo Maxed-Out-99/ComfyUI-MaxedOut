@@ -36,6 +36,18 @@ git clone https://github.com/Maxed-Out-99/ComfyUI-MaxedOut.git
 
 Restart ComfyUI after install.
 
+## Model Storage Auto-Registration
+
+If you keep models outside `ComfyUI/models` (e.g. on another drive), point MaxedOut at that folder and every subfolder inside it (`loras`, `checkpoints`, `vae`, ...) gets auto-registered with ComfyUI at startup, just like `ComfyUI/models/<type>`. No `extra_model_paths.yaml` edits needed, and any new subfolder you add just works after a restart.
+
+Set it any one of these ways:
+
+- **ComfyUI Settings panel** (easiest): Settings → `MXD` → `Model Storage` → set *Root Folder*, then restart ComfyUI.
+- **Config file**: copy `model_storage_config.json.example` to `model_storage_config.json` in this repo's folder and set `model_storage_root`. This file is gitignored, so it's yours to keep.
+- **Environment variable**: set `MAXEDOUT_MODEL_STORAGE` to the folder path before launching ComfyUI.
+
+Leave all three unset and nothing changes -- this is entirely opt-in.
+
 ## Featured Nodes
 
 | Node | What it does |

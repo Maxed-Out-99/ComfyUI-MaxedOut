@@ -13,9 +13,19 @@ from .utils_info import delete_model_info, get_model_info, set_model_info_partia
 routes = PromptServer.instance.routes
 
 
+VALID_MODEL_TYPES = [
+  'loras',
+  'checkpoints',
+  'diffusion_models',
+  'unet_gguf',
+  'text_encoders',
+  'clip_gguf',
+]
+
+
 def _check_valid_model_type(request):
   model_type = request.match_info['type']
-  if model_type not in ['loras', 'checkpoints']:
+  if model_type not in VALID_MODEL_TYPES:
     return web.json_response({'status': 404, 'error': f'Invalid model type: {model_type}'})
   return None
 

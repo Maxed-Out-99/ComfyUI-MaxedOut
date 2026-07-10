@@ -1,10 +1,11 @@
 from __future__ import annotations
 import os
 import re
-import struct
+import base64
 import time
 import urllib.error
 import urllib.request
+from fractions import Fraction
 from io import BytesIO
 from PIL import Image
 from threading import Lock, Thread
@@ -20,6 +21,8 @@ import comfy.sample
 import comfy.utils
 import latent_preview
 import server
+import folder_paths
+from comfy_api.latest import VideoFromComponents, VideoComponents
 
 _serv = server.PromptServer.instance
 
@@ -250,7 +253,7 @@ class _LTXTAEPreviewer:
         if self.first_preview:
             self.first_preview = False
             _serv.send_sync(
-                'VHS_latentpreview',
+                'MXD_live_preview_start',
                 {'length': num_images, 'rate': self.rate, 'id': _serv.last_node_id},
             )
             self.last_time = new_time + 1.0 / self.rate
@@ -279,14 +282,13 @@ class _LTXTAEPreviewer:
                 t = F.interpolate(t, (max_size, w), mode='nearest')
             image_tensor = t.movedim(0, -1)
         previews = image_tensor.clamp(0, 1).mul(0xFF).to(device="cpu", dtype=torch.uint8)
+        node_id = _serv.last_node_id
         for preview in previews:
             img = Image.fromarray(preview.numpy())
             buf = BytesIO()
-            buf.write((1).to_bytes(length=4, byteorder='big') * 2)
-            buf.write(ind.to_bytes(length=4, byteorder='big'))
-            buf.write(struct.pack('16p', _serv.last_node_id.encode('ascii')))
-            img.save(buf, format="JPEG", quality=95, compress_level=1)
-            _serv.send_sync(server.BinaryEventTypes.PREVIEW_IMAGE, buf.getvalue(), _serv.client_id)
+            img.save(buf, format="JPEG", quality=90)
+            data_url = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+            _serv.send_sync('MXD_live_preview_frame', {'id': node_id, 'index': ind, 'length': leng, 'data': data_url})
             # taeltx expands the 8× temporal compression on decode
             ind = (ind + 1) % ((leng - 1) * 8 + 1)
 
@@ -295,6 +297,29 @@ class _LTXTAEPreviewer:
         dtype = self.taeltx.first_stage_model.decoder[1].weight.dtype
         x0 = x0.unsqueeze(0).to(dtype=dtype, device=dev)
         return self.taeltx.first_stage_model.decode(x0)[0].permute(1, 2, 3, 0)
+
+
+def _save_final_ltx_preview(node_id, previewer, x0_v, rate):
+    """Decode the full final clip with taeltx and save it as an mp4 to output/live_previews."""
+    try:
+        frames = x0_v.movedim(2, 1)
+        frames = frames.reshape((-1,) + frames.shape[-3:])
+        frames = previewer._decode(frames).clamp(0, 1).to(device="cpu", dtype=torch.float32)
+        if frames.ndim != 4 or frames.size(0) == 0:
+            return
+        out_dir = os.path.join(folder_paths.get_output_directory(), "live_previews")
+        os.makedirs(out_dir, exist_ok=True)
+        safe_id = str(node_id).replace(":", "_").replace("/", "_")
+        filename = f"{safe_id}_{int(time.time())}.mp4"
+        path = os.path.join(out_dir, filename)
+        video = VideoFromComponents(VideoComponents(images=frames, frame_rate=Fraction(max(1, round(rate)))))
+        video.save_to(path)
+        print(f"[MXD LTX preview] Saved live preview to {path}")
+        _serv.send_sync("MXD_live_preview_saved", {
+            "node_id": node_id, "filename": filename, "subfolder": "live_previews", "type": "output",
+        })
+    except Exception as e:
+        print(f"[MXD LTX preview] Failed to save live preview: {e}")
 
 
 class _LTXPreviewWrapper:
@@ -311,6 +336,7 @@ class _LTXPreviewWrapper:
 
         previewer = _LTXTAEPreviewer(self.taeltx, rate=8)
         pbar = comfy.utils.ProgressBar(len(sigmas) - 1)
+        node_id = _serv.last_node_id
 
         # Strip I2V guide frames appended at the end of the latent before previewing.
         num_keyframes = 0
@@ -335,6 +361,8 @@ class _LTXPreviewWrapper:
                 if x0_v is not None and x0_v.ndim == 5 else None
             )
             pbar.update_absolute(step + 1, total_steps, preview)
+            if step + 1 >= total_steps and x0_v is not None and x0_v.ndim == 5:
+                _save_final_ltx_preview(node_id, previewer, x0_v, previewer.rate)
             if callback is not None:
                 callback(step, x0, x, total_steps)
 
@@ -597,14 +625,60 @@ def _run_sampling(model, positive, negative, latent_image, seed, cfg, sampler_na
 
 
 ########################################################################################################################
+# LTX Preview — attach the taeltx previewer to any model
+class LTXPreviewMXD:
+    DESCRIPTION = (
+        "Enables taeltx video previews during sampling for ANY sampler node "
+        "(SamplerCustomAdvanced, KSampler, etc.), not just the MXD LTX samplers. "
+        "LTX 2.3 (LTXAV) ships no built-in preview decoder, so core ComfyUI shows "
+        "nothing; this attaches a wrapper to the model that decodes latent frames "
+        "with the tiny taeltx autoencoder. Wire it between your model loader and "
+        "the sampler's model input. Downloads taeltx to your vae folder if missing."
+    )
+    TITLE = "LTX Preview MXD"
+    CATEGORY = "MXD/Sampling"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "model":   ("MODEL",),
+                "enabled": ("BOOLEAN", {"default": True, "tooltip": "Turn taeltx previews on/off without unwiring the node."}),
+            },
+        }
+
+    RETURN_TYPES = ("MODEL",)
+    RETURN_NAMES = ("model",)
+    FUNCTION     = "apply"
+    OUTPUT_NODE  = False
+
+    def apply(self, model, enabled=True):
+        if not enabled:
+            return (model,)
+        taeltx = _load_taeltx()
+        if taeltx is None:
+            print("[MXD LTX preview] taeltx model not found in vae / vae_approx — skipping preview.")
+            return (model,)
+        model = model.clone()
+        model.add_wrapper_with_key(
+            comfy.patcher_extension.WrappersMP.OUTER_SAMPLE,
+            "ltx_mxd_preview",
+            _LTXPreviewWrapper(taeltx),
+        )
+        return (model,)
+
+
+########################################################################################################################
 NODE_CLASS_MAPPINGS = {
     "LTXVideoEmptyLatent_MXD":  LTXVideoEmptyLatentMXD,
     "LTXKSampler_MXD":          LTXKSamplerMXD,
     "LTXKSampler2_MXD":         LTXKSampler2MXD,
+    "LTXPreview_MXD":           LTXPreviewMXD,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LTXVideoEmptyLatent_MXD":  "LTX Empty Latent Video MXD",
     "LTXKSampler_MXD":          "LTX Stage 1 Sampler MXD",
     "LTXKSampler2_MXD":         "LTX Stage 2 Refiner MXD",
+    "LTXPreview_MXD":           "LTX Preview MXD",
 }

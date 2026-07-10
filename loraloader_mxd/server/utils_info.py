@@ -304,6 +304,9 @@ def _merge_civitai_data(info_data: dict, data_civitai: dict) -> bool:
   if 'baseModel' not in info_data:
     info_data['baseModel'] = get_dict_value(data_civitai, 'baseModel')
     should_save = True
+  if 'nsfw' not in info_data:
+    info_data['nsfw'] = bool(get_dict_value(data_civitai, 'model.nsfw', default=False))
+    should_save = True
 
   # We always want to merge triggerword.
   civitai_trigger = get_dict_value(data_civitai, 'triggerWords', default=[])
@@ -333,7 +336,8 @@ def _merge_civitai_data(info_data: dict, data_civitai: dict) -> bool:
 
   if 'modelId' in data_civitai:
     info_data['links'] = info_data['links'] if 'links' in info_data else []
-    civitai_link = f'https://civitai.com/models/{get_dict_value(data_civitai, "modelId")}'
+    civitai_host = 'civitai.red' if info_data.get('nsfw') else 'civitai.com'
+    civitai_link = f'https://{civitai_host}/models/{get_dict_value(data_civitai, "modelId")}'
     if get_dict_value(data_civitai, "id"):
       civitai_link += f'?modelVersionId={get_dict_value(data_civitai, "id")}'
     info_data['links'].append(civitai_link)

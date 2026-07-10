@@ -26,6 +26,12 @@ for _name in (
     "loraloader_mxd",
     "CharacterPrompts",
     "ltxnodes",
+    "video_preview_mxd",
+    "model_paths_autoregister_mxd",
+    "combine_materials_ffgo_mxd",
+    "save_checkpoint_mxd",
+    "checkpoint_loader_mxd",
+    "smart_loaders_mxd",
 ):
     _mod = _safe_import(_name)
     _class_map, _display_map = _get_mappings(_mod)
