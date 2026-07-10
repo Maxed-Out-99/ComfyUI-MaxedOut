@@ -1,7 +1,5 @@
 import importlib
 
-WEB_DIRECTORY = "web"
-
 def _safe_import(module_name: str):
     try:
         return importlib.import_module(f".{module_name}", __name__)
@@ -20,12 +18,16 @@ NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}
 
 for _name in (
-    "nodes",
-    "loraloader_mxd",
-    "CharacterPrompts",
-    "smart_loaders_mxd",
-    "system.live_preview",
-    "system.model_paths",
+    "latents",
+    "resolution",
+    "prompts",
+    "masks",
+    "media_io",
+    "comparers",
+    "checkpoints",
+    "ffgo",
+    "wan22",
+    "ltx",
 ):
     _mod = _safe_import(_name)
     _class_map, _display_map = _get_mappings(_mod)
@@ -35,5 +37,4 @@ for _name in (
 __all__ = [
     "NODE_CLASS_MAPPINGS",
     "NODE_DISPLAY_NAME_MAPPINGS",
-    "WEB_DIRECTORY",
 ]

@@ -1,7 +1,47 @@
+"""Checkpoint load/save nodes.
+
+Registered nodes:
+  LoadCheckpointMXD  Load Checkpoint MXD (core loader + MXD info-icon UI)
+  SaveCheckpointMXD  Save Checkpoint MXD (core saver with the FakeDevice fix)
+
+Import-time side effect: replaces comfy.diffusers_convert.cat_tensors with a
+version that materializes lazily-cast weights first (see comment below).
+"""
 import torch
 import folder_paths
+import comfy.sd
 import comfy.diffusers_convert
 from comfy_extras.nodes_model_merging import save_checkpoint
+
+
+class LoadCheckpointMXD:
+    DESCRIPTION = (
+        "Loads a diffusion model checkpoint, same as the core Load Checkpoint node, "
+        "with the MXD info-icon UI (CivitAI lookup, cached metadata, local notes)."
+    )
+    TITLE = "Load Checkpoint MXD"
+    CATEGORY = "MXD/Loaders"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "ckpt_name": (folder_paths.get_filename_list("checkpoints"),),
+            }
+        }
+
+    RETURN_TYPES = ("MODEL", "CLIP", "VAE")
+    FUNCTION = "load_checkpoint"
+
+    def load_checkpoint(self, ckpt_name):
+        ckpt_path = folder_paths.get_full_path_or_raise("checkpoints", ckpt_name)
+        out = comfy.sd.load_checkpoint_guess_config(
+            ckpt_path,
+            output_vae=True,
+            output_clip=True,
+            embedding_directory=folder_paths.get_folder_paths("embeddings"),
+        )
+        return out[:3]
 
 
 # comfy's checkpoint saver builds the CLIP state dict via lazy "casting" params
@@ -80,9 +120,11 @@ class SaveCheckpointMXD:
 
 
 NODE_CLASS_MAPPINGS = {
+    "LoadCheckpointMXD": LoadCheckpointMXD,
     "SaveCheckpointMXD": SaveCheckpointMXD,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
+    "LoadCheckpointMXD": "Load Checkpoint MXD",
     "SaveCheckpointMXD": "Save Checkpoint MXD",
 }

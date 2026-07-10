@@ -3,7 +3,7 @@ with folder_paths, the same way ComfyUI/models/<type> works.
 
 The root is resolved in this order (first hit wins):
   1. MAXEDOUT_MODEL_STORAGE environment variable
-  2. model_storage_config.json next to this file (gitignored -- copy
+  2. model_storage_config.json at the repo root (gitignored -- copy
      model_storage_config.json.example to create your own, it never gets
      committed)
   3. The "MXD > Model Storage > Root Folder" setting in the ComfyUI
@@ -23,8 +23,10 @@ try:
 except ImportError:
     folder_paths = None
 
-_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-_CONFIG_PATH = os.path.join(_THIS_DIR, "model_storage_config.json")
+# The config lives at the REPO ROOT (one level above this system/ package),
+# where users have always placed it — keep that path stable across refactors.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_CONFIG_PATH = os.path.join(_REPO_ROOT, "model_storage_config.json")
 
 
 def _root_from_env():

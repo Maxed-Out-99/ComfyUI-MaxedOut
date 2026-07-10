@@ -191,6 +191,3 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     MxdImageComparerSave.NAME: "Image Comparer + Save MXD",
     MxdVideoComparer.NAME: "Video Comparer MXD",
 }
-
-WEB_DIRECTORY = "."
-__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
