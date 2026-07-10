@@ -1,3 +1,18 @@
+"""Image/video loading and saving, batch folder loaders, workflow extraction.
+
+Registered nodes:
+  Load Image Batch MXD             Load Image Batch (Inputs/Outputs) MXD
+  Load Video Batch MXD             Load Video Batch (Inputs/Outputs) MXD
+  LoadImageFromFolderMXD           Load Image (From Folder) MXD
+  LoadVideoFromFolderMXD           Load Video (From Folder) MXD
+  LoadImageWithPromptsMXD          Load Image MXD
+  Save Image MXD                   Save Image MXD
+  Extract Workflow From Image MXD  Extract Workflow From Image MXD
+
+Routes: GET /mxd/image_batch/folders, /mxd/video_batch/folders,
+/mxd/single_loader/files (frontend swaps folder/file dropdowns between
+inputs/outputs without a page reload; see web/nodes/load_*.js).
+"""
 from __future__ import annotations
 import torch, os, folder_paths, node_helpers, json, hashlib
 import numpy as np

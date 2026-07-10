@@ -1,5 +1,8 @@
-"""
-Standalone Image Comparer Node extracted from the original project.
+"""In-node A/B comparers with save.
+
+Registered nodes:
+  Image Comparer + Save MXD  (slider UI in web/nodes/image_comparer.js)
+  Video Comparer MXD
 """
 import os
 import time

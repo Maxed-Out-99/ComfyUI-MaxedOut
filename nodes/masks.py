@@ -1,3 +1,14 @@
+"""Mask and mask-driven image operations.
+
+Registered nodes:
+  LatentHalfMasks               Latent to L/R Masks MXD
+  Get Latent Size               Get Latent Size MXD
+  Place Image By Mask           Place Image by Mask MXD
+  Crop Image By Mask            Crop Image by Mask MXD
+  SmartCropByMaskMXD            Smart Crop by Mask MXD
+  BboxDetectorCombinedBatchMXD  BBOX Detector Combined Batch MXD
+  ImageAndMaskPreviewMXD        Image and Mask Preview MXD
+"""
 from __future__ import annotations
 import torch, comfy, comfy.utils, folder_paths, random
 import torch.nn.functional as F

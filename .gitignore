@@ -16,7 +16,9 @@ __pycache__/
 .DS_Store
 Thumbs.db
 desktop.ini
-AGENTS.md
+
+# Never commit the transient schema dump (the baseline IS committed)
+scripts/node_schema_current.json
 
 # Node metadata or local testing
 test_*.json

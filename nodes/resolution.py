@@ -1,3 +1,11 @@
+"""Image scaling to model-safe megapixel targets + resolution matchers.
+
+Registered nodes:
+  Image Scale To Total Pixels (SDXL Safe)       Scale SDXL Image MXD
+  Flux Image Scale To Total Pixels (Flux Safe)  Scale Flux Image MXD
+  FluxResolutionMatcher                          Flux Resolution Matcher MXD
+  SDXLResolutionMatcher                          SDXL Resolution Matcher MXD
+"""
 from __future__ import annotations
 import math, comfy, comfy.utils, torch
 from .latents import SdxlEmptyLatentImage
@@ -183,7 +191,7 @@ class FluxResolutionMatcher:
     for res_str, dims in RESOLUTIONS.items():
         if dims is None:
             continue
-        # ✅ Skip high and low groups for logic
+        # Skip high and low groups for logic
         if "High" in res_str or "Low" in res_str:
             continue
         group_name = " ".join(res_str.split(' ')[:-1])

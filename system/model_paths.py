@@ -7,7 +7,7 @@ The root is resolved in this order (first hit wins):
      model_storage_config.json.example to create your own, it never gets
      committed)
   3. The "MXD > Model Storage > Root Folder" setting in the ComfyUI
-     settings panel (web/model_storage_settings_mxd.js). Takes effect on
+     settings panel (web/nodes/model_storage_settings.js). Takes effect on
      the next server restart since folder registration happens at import
      time.
 

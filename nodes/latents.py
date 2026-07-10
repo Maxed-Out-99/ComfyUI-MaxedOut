@@ -1,3 +1,12 @@
+"""Empty-latent generators with model-correct resolution presets.
+
+Registered nodes:
+  Flux Empty Latent Image     Flux Empty Latent Image MXD
+  Flux 2 Empty Latent Image   Flux 2 Empty Latent Image MXD
+  Flux Resolution Selector    Flux Resolution Selector MXD
+  Sdxl Empty Latent Image     SDXL Empty Latent Image MXD
+  ZImageTurboEmptyLatentImage ZIT Empty Latent Image MXD
+"""
 from __future__ import annotations
 import torch, comfy, comfy.model_management
 

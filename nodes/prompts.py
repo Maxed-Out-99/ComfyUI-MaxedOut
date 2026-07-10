@@ -1,3 +1,10 @@
+"""Prompt/conditioning nodes.
+
+Registered nodes:
+  Prompt With Guidance (Flux)  Prompt with Flux Guidance MXD
+  QwenImageEditSingleMXD       Qwen Image Edit + Latent MXD   (needs comfy_api)
+  QwenImageEditTripleMXD       Qwen Image Edit Prompt MXD (Triple)  (needs comfy_api)
+"""
 from __future__ import annotations
 import torch, comfy, math, node_helpers, comfy.model_management, comfy.utils
 from comfy.comfy_types import IO, ComfyNodeABC, InputTypeDict
