@@ -1,5 +1,5 @@
-import { app } from "../../scripts/app.js";
-import { api } from "../../scripts/api.js";
+import { app } from "../../../scripts/app.js";
+import { api } from "../../../scripts/api.js";
 
 // A single global, floating live-preview panel -- NOT a per-node DOM widget.
 // ComfyUI tears down/rebuilds node widgets with the graph, so anything

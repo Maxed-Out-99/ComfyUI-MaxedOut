@@ -1,9 +1,20 @@
-var _a;
-
-import { app } from "../../scripts/app.js";
-import { MxdBaseServerNode } from "./mxd_base_node.js";
-import { mxdRuntime } from "./mxd_runtime.js";
-import { addConnectionLayoutSupport } from "./mxd_utils.js";
+// Shared base for the two Power Lora Loader nodes.
+//
+//   power_lora_loader.js      "Lora Loader MXD"      (dual model/clip strength)
+//   ltx2_power_lora_loader.js "LTX2 Lora Loader MXD" (per-layer strength rows)
+//
+// Everything generic lives here: the node-class machinery (configure /
+// serialization round-trip, API-JSON restore, slot menus, toggle-all), the
+// header row, and the single-strength lora row widget. The two node files
+// subclass and override only what genuinely differs. Serialization formats
+// are unchanged from the pre-merge forks — widget names ("lora_N"), value
+// shapes ({on, lora, strength[, strengthTwo]} and
+// {type: "Ltx2StrengthWidget", key, value}) must never change, or saved
+// workflows break.
+import { app } from "../../../scripts/app.js";
+import { MxdBaseServerNode } from "../lib/mxd_base_node.js";
+import { mxdRuntime } from "../lib/mxd_runtime.js";
+import { addConnectionLayoutSupport } from "../lib/mxd_utils.js";
 import {
   drawInfoIcon,
   drawNumberWidgetPart,
@@ -11,41 +22,33 @@ import {
   drawTogglePart,
   fitString,
   isLowQuality,
-} from "./mxd_utils_canvas.js";
+} from "../lib/mxd_utils_canvas.js";
 import {
   MxdBaseWidget,
   MxdBetterButtonWidget,
   MxdDividerWidget,
-} from "./mxd_utils_widgets.js";
-import { mxdApi } from "./mxd_api.js";
-import { showLoraChooser } from "./mxd_utils_menu.js";
-import { moveArrayItem, removeArrayItem } from "./mxd_shared_utils.js";
-import { MxdLoraInfoDialog } from "./mxd_dialog_info.js";
-import { LORA_INFO_SERVICE } from "./mxd_model_info_service.js";
+} from "../lib/mxd_utils_widgets.js";
+import { mxdApi } from "../lib/mxd_api.js";
+import { showLoraChooser } from "../lib/mxd_utils_menu.js";
+import { moveArrayItem, removeArrayItem } from "../lib/mxd_shared_utils.js";
+import { MxdLoraInfoDialog } from "../lib/mxd_dialog_info.js";
+import { LORA_INFO_SERVICE } from "../lib/mxd_model_info_service.js";
 
-const NODE_TYPE = "Lora Loader MXD";
-const PROP_LABEL_SHOW_STRENGTHS = "Show Strengths";
-const PROP_LABEL_SHOW_STRENGTHS_STATIC = `@${PROP_LABEL_SHOW_STRENGTHS}`;
-const PROP_VALUE_SHOW_STRENGTHS_SINGLE = "Single Strength";
-const PROP_VALUE_SHOW_STRENGTHS_SEPARATE = "Separate Model & Clip";
+export const PROP_LABEL_SHOW_STRENGTHS = "Show Strengths";
+export const PROP_LABEL_SHOW_STRENGTHS_STATIC = `@${PROP_LABEL_SHOW_STRENGTHS}`;
+export const PROP_VALUE_SHOW_STRENGTHS_SINGLE = "Single Strength";
+export const PROP_VALUE_SHOW_STRENGTHS_SEPARATE = "Separate Model & Clip";
 
-class MxdPowerLoraLoader extends MxdBaseServerNode {
-  static title = NODE_TYPE;
-  static type = NODE_TYPE;
-  static comfyClass = NODE_TYPE;
+export class MxdPowerLoraLoaderBase extends MxdBaseServerNode {
+  // Subclasses set this to their lora row widget class.
+  static loraWidgetClass = null;
 
-  static [PROP_LABEL_SHOW_STRENGTHS_STATIC] = {
-    type: "combo",
-    values: [PROP_VALUE_SHOW_STRENGTHS_SINGLE, PROP_VALUE_SHOW_STRENGTHS_SEPARATE],
-  };
-
-  constructor(title = NODE_CLASS.title) {
+  constructor(title = new.target.title, loggerName = "[Power Lora Loader]") {
     super(title);
     this.serialize_widgets = true;
-    this.logger = mxdRuntime.newLogSession("[Power Lora Loader]");
+    this.logger = mxdRuntime.newLogSession(loggerName);
     this.loraWidgetsCounter = 0;
     this.widgetButtonSpacer = null;
-    this.properties[PROP_LABEL_SHOW_STRENGTHS] = PROP_VALUE_SHOW_STRENGTHS_SINGLE;
 
     mxdApi.getLoras();
 
@@ -55,6 +58,11 @@ class MxdPowerLoraLoader extends MxdBaseServerNode {
         this.configureFromApiJson(fullApiJson);
       }, 16);
     }
+  }
+
+  // Which entries of an API-format workflow's inputs belong to this node's widgets.
+  apiJsonInputFilter(input) {
+    return typeof input?.["lora"] === "string";
   }
 
   configureFromApiJson(fullApiJson) {
@@ -71,13 +79,14 @@ class MxdPowerLoraLoader extends MxdBaseServerNode {
       return;
     }
     this.configure({
-      widgets_values: Object.values(nodeData.inputs).filter((input) => typeof input?.["lora"] === "string"),
+      widgets_values: Object.values(nodeData.inputs).filter((input) => this.apiJsonInputFilter(input)),
     });
   }
 
   configure(info) {
     while (this.widgets?.length) this.removeWidget(0);
     this.widgetButtonSpacer = null;
+    this._pendingNonLoraValues = {};
 
     const hasSerializedNodeData =
       info?.id != null ||
@@ -108,10 +117,13 @@ class MxdPowerLoraLoader extends MxdBaseServerNode {
       if (widgetValue?.lora !== undefined) {
         const widget = this.addNewLoraWidget();
         widget.value = { ...widgetValue };
+      } else {
+        this.collectNonLoraWidgetValue(widgetValue);
       }
     }
 
     this.addNonLoraWidgets();
+    this.applyNonLoraWidgetValues();
 
     this.size = this.size || [0, 0];
     if (serializedSize) {
@@ -125,6 +137,10 @@ class MxdPowerLoraLoader extends MxdBaseServerNode {
 
     this.setDirtyCanvas(true, true);
   }
+
+  // Hooks for subclasses whose serialized widgets_values contain more than lora rows.
+  collectNonLoraWidgetValue(widgetValue) {}
+  applyNonLoraWidgetValues() {}
 
   onNodeCreated() {
     super.onNodeCreated?.();
@@ -142,7 +158,8 @@ class MxdPowerLoraLoader extends MxdBaseServerNode {
 
   addNewLoraWidget(lora) {
     this.loraWidgetsCounter++;
-    const widget = this.addCustomWidget(new PowerLoraLoaderWidget("lora_" + this.loraWidgetsCounter));
+    const widgetClass = this.constructor.loraWidgetClass;
+    const widget = this.addCustomWidget(new widgetClass("lora_" + this.loraWidgetsCounter));
     if (lora) widget.setLora(lora);
     if (this.widgetButtonSpacer) {
       moveArrayItem(this.widgets, widget, this.widgets.indexOf(this.widgetButtonSpacer));
@@ -150,13 +167,18 @@ class MxdPowerLoraLoader extends MxdBaseServerNode {
     return widget;
   }
 
-  addNonLoraWidgets() {
+  // The widgets above the lora rows. Subclasses may override to add more.
+  addHeaderWidgets() {
     moveArrayItem(
       this.widgets,
       this.addCustomWidget(new MxdDividerWidget({ marginTop: 4, marginBottom: 0, thickness: 0 })),
       0,
     );
     moveArrayItem(this.widgets, this.addCustomWidget(new PowerLoraLoaderHeaderWidget()), 1);
+  }
+
+  addNonLoraWidgets() {
+    this.addHeaderWidgets();
 
     this.widgetButtonSpacer = this.addCustomWidget(
       new MxdDividerWidget({ marginTop: 4, marginBottom: 0, thickness: 0 }),
@@ -285,26 +307,21 @@ class MxdPowerLoraLoader extends MxdBaseServerNode {
   }
 
   static setUp(comfyClass, nodeData) {
-    MxdBaseServerNode.registerForOverride(comfyClass, nodeData, NODE_CLASS);
+    MxdBaseServerNode.registerForOverride(comfyClass, nodeData, this);
   }
 
-  static onRegisteredForOverride(comfyClass, ctxClass) {
-    addConnectionLayoutSupport(NODE_CLASS, app, [
+  static onRegisteredForOverride(comfyClass, mxdClass) {
+    addConnectionLayoutSupport(mxdClass, app, [
       ["Left", "Right"],
       ["Right", "Left"],
     ]);
     setTimeout(() => {
-      NODE_CLASS.category = comfyClass.category;
+      mxdClass.category = comfyClass.category;
     });
   }
 }
-_a = PROP_LABEL_SHOW_STRENGTHS_STATIC;
-MxdPowerLoraLoader[_a] = {
-  type: "combo",
-  values: [PROP_VALUE_SHOW_STRENGTHS_SINGLE, PROP_VALUE_SHOW_STRENGTHS_SEPARATE],
-};
 
-class PowerLoraLoaderHeaderWidget extends MxdBaseWidget {
+export class PowerLoraLoaderHeaderWidget extends MxdBaseWidget {
   constructor(name = "PowerLoraLoaderHeaderWidget") {
     super(name);
     this.value = { type: "PowerLoraLoaderHeaderWidget" };
@@ -318,6 +335,8 @@ class PowerLoraLoaderHeaderWidget extends MxdBaseWidget {
   draw(ctx, node, w, posY, height) {
     if (!node.hasLoraWidgets()) return;
 
+    // Nodes without the "Show Strengths" property (e.g. the LTX2 loader)
+    // always get the single "Strength" column.
     this.showModelAndClip = node.properties[PROP_LABEL_SHOW_STRENGTHS] === PROP_VALUE_SHOW_STRENGTHS_SEPARATE;
     const margin = 10;
     const innerMargin = margin * 0.33;
@@ -356,21 +375,15 @@ class PowerLoraLoaderHeaderWidget extends MxdBaseWidget {
   }
 }
 
-const DEFAULT_LORA_WIDGET_DATA = {
-  on: true,
-  lora: null,
-  strength: 1,
-  strengthTwo: null,
-};
-
-class PowerLoraLoaderWidget extends MxdBaseWidget {
+// Single-strength lora row: toggle | name | [info] | [x] | strength.
+// The dual model/clip variant in power_lora_loader.js extends this.
+export class PowerLoraBaseWidget extends MxdBaseWidget {
   constructor(name) {
     super(name);
     this.type = "custom";
     this.haveMouseMovedStrength = false;
     this.loraInfoPromise = null;
     this.loraInfo = null;
-    this.showModelAndClip = null;
     this.hitAreas = {
       toggle: { bounds: [0, 0], onDown: this.onToggleDown },
       lora: { bounds: [0, 0], onClick: this.onLoraClick },
@@ -380,26 +393,18 @@ class PowerLoraLoaderWidget extends MxdBaseWidget {
       strengthVal: { bounds: [0, 0], onClick: this.onStrengthValUp },
       strengthInc: { bounds: [0, 0], onClick: this.onStrengthIncDown },
       strengthAny: { bounds: [0, 0], onMove: this.onStrengthAnyMove },
-      strengthTwoDec: { bounds: [0, 0], onClick: this.onStrengthTwoDecDown },
-      strengthTwoVal: { bounds: [0, 0], onClick: this.onStrengthTwoValUp },
-      strengthTwoInc: { bounds: [0, 0], onClick: this.onStrengthTwoIncDown },
-      strengthTwoAny: { bounds: [0, 0], onMove: this.onStrengthTwoAnyMove },
     };
-    this._value = {
-      on: true,
-      lora: null,
-      strength: 1,
-      strengthTwo: null,
-    };
+    this._value = { ...this.newDefaultValue() };
+  }
+
+  newDefaultValue() {
+    return { on: true, lora: null, strength: 1 };
   }
 
   set value(v) {
     this._value = v;
     if (typeof this._value !== "object") {
-      this._value = { ...DEFAULT_LORA_WIDGET_DATA };
-      if (this.showModelAndClip) {
-        this._value.strengthTwo = this._value.strength;
-      }
+      this._value = { ...this.newDefaultValue() };
     }
     this.getLoraInfo();
   }
@@ -413,102 +418,29 @@ class PowerLoraLoaderWidget extends MxdBaseWidget {
     this.getLoraInfo();
   }
 
-  draw(ctx, node, w, posY, height) {
-    let currentShowModelAndClip = node.properties[PROP_LABEL_SHOW_STRENGTHS] === PROP_VALUE_SHOW_STRENGTHS_SEPARATE;
-    if (this.showModelAndClip !== currentShowModelAndClip) {
-      let oldShowModelAndClip = this.showModelAndClip;
-      this.showModelAndClip = currentShowModelAndClip;
-      if (this.showModelAndClip) {
-        if (oldShowModelAndClip != null) {
-          this.value.strengthTwo = this.value.strength ?? 1;
-        }
-      } else {
-        this.value.strengthTwo = null;
-        this.hitAreas.strengthTwoDec.bounds = [0, -1];
-        this.hitAreas.strengthTwoVal.bounds = [0, -1];
-        this.hitAreas.strengthTwoInc.bounds = [0, -1];
-        this.hitAreas.strengthTwoAny.bounds = [0, -1];
-      }
-    }
+  // Shared drawing pieces -----------------------------------------------
 
-    ctx.save();
-    const margin = 10;
-    const innerMargin = margin * 0.33;
-    const lowQuality = isLowQuality();
-    const midY = posY + height * 0.5;
-
+  drawRowBackgroundAndToggle(ctx, node, posY, height, margin, innerMargin) {
     let posX = margin;
-
     drawRoundedRectangle(ctx, { pos: [posX, posY], size: [node.size[0] - margin * 2, height] });
     this.hitAreas.toggle.bounds = drawTogglePart(ctx, { posX, posY, height, value: this.value.on });
     posX += this.hitAreas.toggle.bounds[1] + innerMargin;
+    return posX;
+  }
 
-    if (lowQuality) {
-      ctx.restore();
-      return;
-    }
-
-    if (!this.value.on) {
-      ctx.globalAlpha = app.canvas.editor_alpha * 0.4;
-    }
-
-    ctx.fillStyle = LiteGraph.WIDGET_TEXT_COLOR;
-
-    let rposX = node.size[0] - margin - innerMargin - innerMargin;
-
-    const strengthValue = this.showModelAndClip ? (this.value.strengthTwo ?? 1) : (this.value.strength ?? 1);
-
-    let textColor = undefined;
+  strengthTextColor(strengthValue) {
     if (this.loraInfo?.strengthMax != null && strengthValue > this.loraInfo?.strengthMax) {
-      textColor = "#c66";
-    } else if (this.loraInfo?.strengthMin != null && strengthValue < this.loraInfo?.strengthMin) {
-      textColor = "#c66";
+      return "#c66";
     }
-
-    const [leftArrow, text, rightArrow] = drawNumberWidgetPart(ctx, {
-      posX: node.size[0] - margin - innerMargin - innerMargin,
-      posY,
-      height,
-      value: strengthValue,
-      direction: -1,
-      textColor,
-    });
-
-    this.hitAreas.strengthDec.bounds = leftArrow;
-    this.hitAreas.strengthVal.bounds = text;
-    this.hitAreas.strengthInc.bounds = rightArrow;
-    this.hitAreas.strengthAny.bounds = [leftArrow[0], rightArrow[0] + rightArrow[1] - leftArrow[0]];
-
-    rposX = leftArrow[0] - innerMargin;
-
-    if (this.showModelAndClip) {
-      rposX -= innerMargin;
-      this.hitAreas.strengthTwoDec.bounds = this.hitAreas.strengthDec.bounds;
-      this.hitAreas.strengthTwoVal.bounds = this.hitAreas.strengthVal.bounds;
-      this.hitAreas.strengthTwoInc.bounds = this.hitAreas.strengthInc.bounds;
-      this.hitAreas.strengthTwoAny.bounds = this.hitAreas.strengthAny.bounds;
-
-      let textColor = undefined;
-      if (this.loraInfo?.strengthMax != null && this.value.strength > this.loraInfo?.strengthMax) {
-        textColor = "#c66";
-      } else if (this.loraInfo?.strengthMin != null && this.value.strength < this.loraInfo?.strengthMin) {
-        textColor = "#c66";
-      }
-      const [leftArrow2, text2, rightArrow2] = drawNumberWidgetPart(ctx, {
-        posX: rposX,
-        posY,
-        height,
-        value: this.value.strength ?? 1,
-        direction: -1,
-        textColor,
-      });
-      this.hitAreas.strengthDec.bounds = leftArrow2;
-      this.hitAreas.strengthVal.bounds = text2;
-      this.hitAreas.strengthInc.bounds = rightArrow2;
-      this.hitAreas.strengthAny.bounds = [leftArrow2[0], rightArrow2[0] + rightArrow2[1] - leftArrow2[0]];
-      rposX = leftArrow2[0] - innerMargin;
+    if (this.loraInfo?.strengthMin != null && strengthValue < this.loraInfo?.strengthMin) {
+      return "#c66";
     }
+    return undefined;
+  }
 
+  // Draws the info icon (when a lora is set), the remove button, and the
+  // lora name, right-to-left starting at rposX. Returns nothing; sets bounds.
+  drawIconsAndName(ctx, node, posX, posY, height, rposX, innerMargin, midY) {
     const showInfoIcon = this.value?.lora && this.value?.lora !== "None";
     const infoIconSize = height * 0.66;
     const infoWidth = infoIconSize + innerMargin + innerMargin;
@@ -552,22 +484,56 @@ class PowerLoraLoaderWidget extends MxdBaseWidget {
     ctx.fillText(fitString(ctx, loraLabel, loraWidth), posX, midY);
 
     this.hitAreas.lora.bounds = [posX, loraWidth];
-    posX += loraWidth + innerMargin;
+  }
+
+  draw(ctx, node, w, posY, height) {
+    ctx.save();
+    const margin = 10;
+    const innerMargin = margin * 0.33;
+    const lowQuality = isLowQuality();
+    const midY = posY + height * 0.5;
+
+    const posX = this.drawRowBackgroundAndToggle(ctx, node, posY, height, margin, innerMargin);
+
+    if (lowQuality) {
+      ctx.restore();
+      return;
+    }
+
+    if (!this.value.on) {
+      ctx.globalAlpha = app.canvas.editor_alpha * 0.4;
+    }
+
+    ctx.fillStyle = LiteGraph.WIDGET_TEXT_COLOR;
+
+    const strengthValue = this.value.strength ?? 1;
+
+    const [leftArrow, text, rightArrow] = drawNumberWidgetPart(ctx, {
+      posX: node.size[0] - margin - innerMargin - innerMargin,
+      posY,
+      height,
+      value: strengthValue,
+      direction: -1,
+      textColor: this.strengthTextColor(strengthValue),
+    });
+
+    this.hitAreas.strengthDec.bounds = leftArrow;
+    this.hitAreas.strengthVal.bounds = text;
+    this.hitAreas.strengthInc.bounds = rightArrow;
+    this.hitAreas.strengthAny.bounds = [leftArrow[0], rightArrow[0] + rightArrow[1] - leftArrow[0]];
+
+    const rposX = leftArrow[0] - innerMargin;
+    this.drawIconsAndName(ctx, node, posX, posY, height, rposX, innerMargin, midY);
 
     ctx.globalAlpha = app.canvas.editor_alpha;
     ctx.restore();
   }
 
   serializeValue(node, index) {
-    const v = { ...this.value };
-    if (!this.showModelAndClip) {
-      delete v.strengthTwo;
-    } else {
-      this.value.strengthTwo = this.value.strengthTwo ?? 1;
-      v.strengthTwo = this.value.strengthTwo;
-    }
-    return v;
+    return { ...this.value };
   }
+
+  // Interaction ----------------------------------------------------------
 
   onToggleDown(event, pos, node) {
     this.value.on = !this.value.on;
@@ -601,50 +567,24 @@ class PowerLoraLoaderWidget extends MxdBaseWidget {
   }
 
   onStrengthDecDown(event, pos, node) {
-    this.stepStrength(-1, false);
+    this.stepStrength(-1);
   }
 
   onStrengthIncDown(event, pos, node) {
-    this.stepStrength(1, false);
-  }
-
-  onStrengthTwoDecDown(event, pos, node) {
-    this.stepStrength(-1, true);
-  }
-
-  onStrengthTwoIncDown(event, pos, node) {
-    this.stepStrength(1, true);
+    this.stepStrength(1);
   }
 
   onStrengthAnyMove(event, pos, node) {
-    this.doOnStrengthAnyMove(event, false);
-  }
-
-  onStrengthTwoAnyMove(event, pos, node) {
-    this.doOnStrengthAnyMove(event, true);
-  }
-
-  doOnStrengthAnyMove(event, isTwo = false) {
     if (event.deltaX) {
-      let prop = isTwo ? "strengthTwo" : "strength";
       this.haveMouseMovedStrength = true;
-      this.value[prop] = (this.value[prop] ?? 1) + event.deltaX * 0.05;
+      this.value.strength = (this.value.strength ?? 1) + event.deltaX * 0.05;
     }
   }
 
   onStrengthValUp(event, pos, node) {
-    this.doOnStrengthValUp(event, false);
-  }
-
-  onStrengthTwoValUp(event, pos, node) {
-    this.doOnStrengthValUp(event, true);
-  }
-
-  doOnStrengthValUp(event, isTwo = false) {
     if (this.haveMouseMovedStrength) return;
-    let prop = isTwo ? "strengthTwo" : "strength";
     const canvas = app.canvas;
-    canvas.prompt("Value", this.value[prop], (v) => (this.value[prop] = Number(v)), event);
+    canvas.prompt("Value", this.value.strength, (v) => (this.value.strength = Number(v)), event);
   }
 
   onMouseUp(event, pos, node) {
@@ -664,11 +604,10 @@ class PowerLoraLoaderWidget extends MxdBaseWidget {
     });
   }
 
-  stepStrength(direction, isTwo = false) {
+  stepStrength(direction) {
     let step = 0.05;
-    let prop = isTwo ? "strengthTwo" : "strength";
-    let strength = (this.value[prop] ?? 1) + step * direction;
-    this.value[prop] = Math.round(strength * 100) / 100;
+    let strength = (this.value.strength ?? 1) + step * direction;
+    this.value.strength = Math.round(strength * 100) / 100;
   }
 
   getLoraInfo(force = false) {
@@ -684,14 +623,3 @@ class PowerLoraLoaderWidget extends MxdBaseWidget {
     return this.loraInfoPromise;
   }
 }
-
-const NODE_CLASS = MxdPowerLoraLoader;
-
-app.registerExtension({
-  name: "mxd.PowerLoraLoader",
-  async beforeRegisterNodeDef(nodeType, nodeData) {
-    if (nodeData.name === NODE_CLASS.type) {
-      NODE_CLASS.setUp(nodeType, nodeData);
-    }
-  },
-});

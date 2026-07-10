@@ -1,5 +1,5 @@
-import { app } from "../../scripts/app.js";
-import { ComfyWidgets } from "../../scripts/widgets.js";
+import { app } from "../../../scripts/app.js";
+import { ComfyWidgets } from "../../../scripts/widgets.js";
 import { defineProperty, moveArrayItem } from "./mxd_shared_utils.js";
 
 export class MxdBaseNode extends LGraphNode {

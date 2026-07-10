@@ -1,5 +1,5 @@
-import { app } from "../../scripts/app.js";
-import { api } from "../../scripts/api.js";
+import { app } from "../../../scripts/app.js";
+import { api } from "../../../scripts/api.js";
 
 const NODE_TYPES = new Set(["Load Video Batch MXD"]);
 

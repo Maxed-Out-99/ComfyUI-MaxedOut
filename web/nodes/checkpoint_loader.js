@@ -1,7 +1,7 @@
-import { app } from "../../scripts/app.js";
-import { mxdApi } from "./mxd_api.js";
-import { replaceWidgetWithModelRow } from "./mxd_model_row_widget.js";
-import { MxdCheckpointInfoDialog } from "./mxd_dialog_info.js";
+import { app } from "../../../scripts/app.js";
+import { mxdApi } from "../lib/mxd_api.js";
+import { replaceWidgetWithModelRow } from "../lib/mxd_model_row_widget.js";
+import { MxdCheckpointInfoDialog } from "../lib/mxd_dialog_info.js";
 
 const NODE_TYPE = "LoadCheckpointMXD";
 

@@ -1,5 +1,5 @@
-import { app } from "../../scripts/app.js";
-import { api } from "../../scripts/api.js";
+import { app } from "../../../scripts/app.js";
+import { api } from "../../../scripts/api.js";
 
 // Node types that get the "run_folder" toggle (declared server-side), mapped
 // to the name of their single-file picker widget.

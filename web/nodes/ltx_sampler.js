@@ -1,4 +1,4 @@
-import { app } from "../../scripts/app.js";
+import { app } from "../../../scripts/app.js";
 
 const LTX_SAMPLER_NODE_TYPES = new Set(["LTXKSampler_MXD", "LTXKSampler2_MXD"]);
 const CUSTOM_SIGMAS_MODE = "Custom Sigmas";

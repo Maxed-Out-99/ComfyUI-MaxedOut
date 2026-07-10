@@ -1,5 +1,5 @@
-import { app } from "../../scripts/app.js";
-import { api } from "../../scripts/api.js";
+import { app } from "../../../scripts/app.js";
+import { api } from "../../../scripts/api.js";
 
 const TARGET_NODE_CLASS = "MXDCharacterEditDelete";
 const TARGET_PROMPT_ENCODE_CLASS = "MXDCharacterPromptEncode";

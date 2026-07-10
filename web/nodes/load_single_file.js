@@ -1,5 +1,5 @@
-import { app } from "../../scripts/app.js";
-import { api } from "../../scripts/api.js";
+import { app } from "../../../scripts/app.js";
+import { api } from "../../../scripts/api.js";
 
 // nodeType -> { widget: pickerWidgetName, kind: "image" | "video" }
 const NODE_CONFIG = new Map([

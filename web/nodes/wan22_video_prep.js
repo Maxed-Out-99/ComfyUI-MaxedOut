@@ -1,4 +1,4 @@
-import { app } from "../../scripts/app.js";
+import { app } from "../../../scripts/app.js";
 
 const NODE_TYPES = new Set(["WAN22_I2V_Video_Prep_MXD"]);
 

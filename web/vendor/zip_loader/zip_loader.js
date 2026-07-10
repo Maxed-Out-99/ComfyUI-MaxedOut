@@ -1,4 +1,4 @@
-import { app } from "../../../../../scripts/app.js";
+import { app } from "../../../../scripts/app.js";
 
 function get_ext(filename) {
     const ext = filename.split(".").pop();

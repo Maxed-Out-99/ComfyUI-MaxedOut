@@ -1,5 +1,5 @@
 import { mxdApi } from "./mxd_api.js";
-import { api } from "../../scripts/api.js";
+import { api } from "../../../scripts/api.js";
 
 class BaseModelInfoService extends EventTarget {
   constructor(modelInfoType, apiRefreshEventString) {

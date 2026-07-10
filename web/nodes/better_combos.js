@@ -1,25 +1,19 @@
-﻿import { app } from "../../../scripts/app.js";
-import { ComfyWidgets } from "../../../scripts/widgets.js";
+﻿// Folder-tree / grid display for the MXD latent loader combos (adapted from
+// pysssss ComfyUI-Custom-Scripts' betterCombos; scoped to MXD nodes only).
+import { app } from "../../../scripts/app.js";
 import { $el } from "../../../scripts/ui.js";
 import { api } from "../../../scripts/api.js";
 
-const CHECKPOINT_LOADER = "CheckpointLoader|pysssss";
-const LORA_LOADER = "LoraLoader|pysssss";
 const LOAD_LATENT_I2V_MXD = "LoadLatent_I2V_MXD";
-const LOAD_LATENT_I2V_MXD_ALIAS = "LoadLatent_I2V_MXD MXD";
 const LOAD_LATENTS_FROM_FOLDER_I2V_MXD = "LoadLatents_FromFolder_I2V_MXD";
-const LOAD_LATENTS_FROM_FOLDER_I2V_MXD_ALIAS = "LoadLatents_FromFolder_I2V_MXD MXD";
 const LOAD_LATENT_I2V_PIPE_MXD = "LoadLatent_I2V_Pipe_MXD";
 const LOAD_LATENTS_FROM_FOLDER_I2V_PIPE_MXD = "LoadLatents_FromFolder_I2V_Pipe_MXD";
-const ENABLE_PYSSSS_NODE_ENHANCEMENTS = false;
 const IMAGE_WIDTH = 384;
 const IMAGE_HEIGHT = 384;
 
 const NODE_CONFIGS = {
         [LOAD_LATENT_I2V_MXD]: { type: "latents", widgetName: "latent", hasImages: false },
-        [LOAD_LATENT_I2V_MXD_ALIAS]: { type: "latents", widgetName: "latent", hasImages: false },
         [LOAD_LATENTS_FROM_FOLDER_I2V_MXD]: { type: "latents", widgetName: "subfolder", hasImages: false },
-        [LOAD_LATENTS_FROM_FOLDER_I2V_MXD_ALIAS]: { type: "latents", widgetName: "subfolder", hasImages: false },
         [LOAD_LATENT_I2V_PIPE_MXD]: { type: "latents", widgetName: "latent", hasImages: false },
         [LOAD_LATENTS_FROM_FOLDER_I2V_PIPE_MXD]: { type: "latents", widgetName: "subfolder", hasImages: false },
 };
@@ -189,20 +183,6 @@ app.registerExtension({
 			`,
 			parent: document.body,
 		});
-                const imageTypes = Object.keys(CONFIG_BY_TYPE).filter((type) => CONFIG_BY_TYPE[type].hasImages);
-                for (const type of imageTypes) {
-                        ensureImageList(type).catch(() => {});
-                }
-
-                const refreshComboInNodes = app.refreshComboInNodes;
-                app.refreshComboInNodes = async function () {
-                        const r = await Promise.all([
-                                refreshComboInNodes.apply(this, arguments),
-                                ...imageTypes.map((type) => ensureImageList(type).catch(() => {})),
-                        ]);
-                        return r[0];
-                };
-
                 const imageHost = $el("img.pysssss-combo-image");
 
 		const positionMenu = (menu, fillWidth) => {
@@ -444,151 +424,4 @@ app.registerExtension({
 		});
 		mutationObserver.observe(document.body, { childList: true, subtree: false });
 	},
-	async beforeRegisterNodeDef(nodeType, nodeData, app) {
-                const isCkpt = nodeData.name === CHECKPOINT_LOADER;
-                const isLora = nodeData.name === LORA_LOADER;
-                if (ENABLE_PYSSSS_NODE_ENHANCEMENTS && (isCkpt || isLora)) {
-                        const nodeConfig = getNodeConfig(nodeData.name) ?? getNodeConfig(nodeType);
-                        const onAdded = nodeType.prototype.onAdded;
-                        nodeType.prototype.onAdded = function () {
-                                onAdded?.apply(this, arguments);
-                                const { widget: exampleList } = ComfyWidgets["COMBO"](this, "example", [[""], {}], app);
-                                this.widgets.find((w) => w.name === "prompt").computeSize = () => [0, -4];
-                                let exampleWidget;
-
-                                const get = async (route, suffix) => {
-                                        const baseType = nodeConfig?.type ?? "";
-                                        const url = encodeRFC3986URIComponent(`${baseType}${suffix || ""}`);
-                                        return await api.fetchApi(`/pysssss/${route}/${url}`);
-                                };
-
-				const getExample = async () => {
-					if (exampleList.value === "[none]") {
-						if (exampleWidget) {
-							exampleWidget.inputEl.remove();
-							exampleWidget = null;
-							this.widgets.length -= 1;
-						}
-						return;
-					}
-
-					const v = this.widgets[0].value;
-					const pos = v.lastIndexOf(".");
-					const name = v.substr(0, pos);
-					let exampleName = exampleList.value;
-					let viewPath = `/${name}`;
-					if (exampleName === "notes") {
-						viewPath += ".txt";
-					} else {
-						viewPath += `/${exampleName}`;
-					}
-					const example = await (await get("view", viewPath)).text();
-					if (!exampleWidget) {
-						exampleWidget = ComfyWidgets["STRING"](this, "prompt", ["STRING", { multiline: true }], app).widget;
-						exampleWidget.inputEl.readOnly = true;
-						exampleWidget.inputEl.style.opacity = 0.6;
-					}
-					exampleWidget.value = example;
-				};
-
-				const exampleCb = exampleList.callback;
-				exampleList.callback = function () {
-					getExample();
-					return exampleCb?.apply(this, arguments) ?? exampleList.value;
-				};
-
-				const listExamples = async () => {
-					exampleList.disabled = true;
-					exampleList.options.values = ["[none]"];
-					exampleList.value = "[none]";
-					let examples = [];
-					if (this.widgets[0].value) {
-						try {
-							examples = await (await get("examples", `/${this.widgets[0].value}`)).json();
-						} catch (error) {}
-					}
-					exampleList.options.values = ["[none]", ...examples];
-					exampleList.value = exampleList.options.values[+!!examples.length];
-					exampleList.callback();
-					exampleList.disabled = !examples.length;
-					app.graph.setDirtyCanvas(true, true);
-				};
-
-				// Expose function to update examples
-				nodeType.prototype["pysssss.updateExamples"] = listExamples;
-
-				const modelWidget = this.widgets[0];
-				const modelCb = modelWidget.callback;
-				let prev = undefined;
-				modelWidget.callback = function () {
-					let ret = modelCb?.apply(this, arguments) ?? modelWidget.value;
-					if (typeof ret === "object" && "content" in ret) {
-						ret = ret.content;
-						modelWidget.value = ret;
-					}
-					let v = ret;
-					if (prev !== v) {
-						listExamples();
-						prev = v;
-					}
-					return ret;
-				};
-				setTimeout(() => {
-					modelWidget.callback();
-				}, 30);
-			};
-		}
-
-		const getExtraMenuOptions = nodeType.prototype.getExtraMenuOptions;
-		nodeType.prototype.getExtraMenuOptions = function (_, options) {
-			if (!ENABLE_PYSSSS_NODE_ENHANCEMENTS) {
-				return getExtraMenuOptions?.apply(this, arguments);
-			}
-			if (this.imgs) {
-				// If this node has images then we add an open in new tab item
-				let img;
-				if (this.imageIndex != null) {
-					// An image is selected so select that
-					img = this.imgs[this.imageIndex];
-				} else if (this.overIndex != null) {
-					// No image is selected but one is hovered
-					img = this.imgs[this.overIndex];
-				}
-                                        if (img) {
-                                                const nodes = app.graph._nodes.filter((n) => n.comfyClass === LORA_LOADER || n.comfyClass === CHECKPOINT_LOADER);
-                                                if (nodes.length) {
-                                                        options.unshift({
-                                                                content: "Save as Preview",
-                                                                submenu: {
-                                                                        options: nodes.map((n) => ({
-                                                                                content: n.widgets[0].value,
-                                                                                callback: async () => {
-                                                                                        const url = new URL(img.src);
-                                                                                        const targetConfig = getNodeConfig(n);
-                                                                                        const targetType = targetConfig?.type ?? "";
-                                                                                        await api.fetchApi("/pysssss/save/" + encodeRFC3986URIComponent(`${targetType}/${n.widgets[0].value}`), {
-                                                                                                method: "POST",
-                                                                                                body: JSON.stringify({
-                                                                                                        filename: url.searchParams.get("filename"),
-                                                                                                        subfolder: url.searchParams.get("subfolder"),
-                                                                                                        type: url.searchParams.get("type"),
-                                                                                                }),
-                                                                                                headers: {
-                                                                                                        "content-type": "application/json",
-                                                                                                },
-                                                                                        });
-                                                                                        if (targetConfig?.hasImages) {
-                                                                                                loadImageList(targetType);
-                                                                                        }
-                                                                                },
-                                                                        })),
-                                                                },
-                                                        });
-                                                }
-				}
-			}
-			return getExtraMenuOptions?.apply(this, arguments);
-		};
-	},
 });
-

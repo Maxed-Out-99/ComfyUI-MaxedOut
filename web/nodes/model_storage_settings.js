@@ -1,4 +1,4 @@
-import { app } from "../../scripts/app.js";
+import { app } from "../../../scripts/app.js";
 
 // Exposes the model storage auto-register root as a ComfyUI setting, as an
 // alternative to MAXEDOUT_MODEL_STORAGE / model_storage_config.json for

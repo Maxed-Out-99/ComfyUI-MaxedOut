@@ -1,4 +1,4 @@
-import { app } from "../../scripts/app.js";
+import { app } from "../../../scripts/app.js";
 import { MxdBaseWidget } from "./mxd_utils_widgets.js";
 import { drawRoundedRectangle, drawInfoIcon, fitString, isLowQuality } from "./mxd_utils_canvas.js";
 import { showModelChooser } from "./mxd_utils_menu.js";

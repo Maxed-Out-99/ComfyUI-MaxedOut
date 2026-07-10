@@ -1,4 +1,4 @@
-import { app } from "../../scripts/app.js";
+import { app } from "../../../scripts/app.js";
 
 // Adds a global "preview any sampler as it renders" toggle, backed by
 // video_preview_mxd.py's general get_previewer hook. Writes its own

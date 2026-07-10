@@ -1,4 +1,4 @@
-import { app } from "../../scripts/app.js";
+import { app } from "../../../scripts/app.js";
 
 // Grows/shrinks the foreground_N input sockets as they're connected, the same
 // way reference/conditioning-image nodes reveal a new empty slot once the
