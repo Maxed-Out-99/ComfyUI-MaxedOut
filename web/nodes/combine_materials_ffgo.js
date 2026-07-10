@@ -4,7 +4,7 @@ import { app } from "../../../scripts/app.js";
 // way reference/conditioning-image nodes reveal a new empty slot once the
 // current last one is plugged in. Backend declares foreground_1 (required)
 // plus foreground_2..foreground_6 (optional) as individual IMAGE sockets (see
-// MAX_FOREGROUNDS in combine_materials_ffgo_mxd.py) so arbitrarily-sized RGBA
+// MAX_FOREGROUNDS in nodes/ffgo.py) so arbitrarily-sized RGBA
 // cutouts never have to be batched into one uniform IMAGE tensor.
 //
 // MAX_FOREGROUNDS must stay in sync with the Python-side constant — it's a

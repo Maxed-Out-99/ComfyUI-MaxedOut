@@ -10,7 +10,7 @@ The taeltx model is auto-discovered in the vae / vae_approx model folders. If
 it isn't found, it is downloaded to the configured vae model folder.
 
 Sends MXD_live_preview_start / MXD_live_preview_frame / MXD_live_preview_saved
-websocket events consumed by web/live_preview_panel_mxd.js. Final clips are
+websocket events consumed by web/nodes/live_preview_panel.js. Final clips are
 saved to <output>/live_previews.
 
 TAE decode path borrowed from kjnodes / VideoHelperSuite.

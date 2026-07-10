@@ -1,12 +1,12 @@
 import { app } from "../../../scripts/app.js";
 
 // Adds a global "preview any sampler as it renders" toggle, backed by
-// video_preview_mxd.py's general get_previewer hook. Writes its own
+// system/live_preview.py's general get_previewer hook. Writes its own
 // MXD_latentpreview / MXD_latentpreviewrate workflow-extra keys, deliberately
 // separate from VHS's own VHS_latentpreview/VHS_latentpreviewrate keys, so
 // this toggle and VideoHelperSuite's identically-named setting don't fight
 // over the same flag -- each hook only wraps the previewer when ITS OWN flag
-// is on. The actual rendering (web/live_preview_panel_mxd.js) is a global
+// is on. The actual rendering (web/nodes/live_preview_panel.js) is a global
 // floating panel, not a per-node widget, so it isn't affected by which
 // workflow tab is open.
 app.registerExtension({

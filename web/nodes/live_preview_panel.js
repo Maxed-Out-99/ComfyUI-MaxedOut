@@ -11,7 +11,7 @@ import { api } from "../../../scripts/api.js";
 // freely draggable (grab the header) and resizable (grab any edge/corner),
 // with both position/size and collapsed state remembered across reloads.
 //
-// Backend (video_preview_mxd.py / ltxnodes.py) streams frames over its own
+// Backend (system/live_preview.py / nodes/ltx/preview.py) streams frames over its own
 // private MXD_live_preview_start / MXD_live_preview_frame websocket events
 // (plain JSON, base64 JPEG -- not the shared VHS_latentpreview/b_preview
 // channel, which turned out to be an unreliable place to listen: whichever

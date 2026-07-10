@@ -11,11 +11,11 @@ JSON, base64-encoded JPEG frames) -- deliberately NOT the `VHS_latentpreview` /
 default single-image preview both also listen on. Sharing that channel turned
 out to be unreliable: whichever of us/VHS/core happened to register its
 listener first could swallow the event before the others saw it, so the
-frontend panel (web/live_preview_panel_mxd.js) would sometimes just never
+frontend panel (web/nodes/live_preview_panel.js) would sometimes just never
 render. A fully private channel has no such collision risk.
 
 Enabled per-run via the `MXD_latentpreview` flag in the workflow's
-extra_pnginfo, set by web/video_preview_mxd.js.
+extra_pnginfo, set by web/nodes/video_preview.js.
 
 Also patches `latent_preview.prepare_callback` to save the final frame batch
 of any run with this preview enabled to

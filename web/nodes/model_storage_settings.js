@@ -4,7 +4,7 @@ import { app } from "../../../scripts/app.js";
 // alternative to MAXEDOUT_MODEL_STORAGE / model_storage_config.json for
 // people who'd rather not touch a config file. Purely a convenience UI --
 // the actual registration happens at import time in
-// model_paths_autoregister_mxd.py, which reads this setting back out of
+// system/model_paths.py, which reads this setting back out of
 // user/default/comfy.settings.json, so a change here only takes effect
 // after restarting the ComfyUI server.
 app.registerExtension({
