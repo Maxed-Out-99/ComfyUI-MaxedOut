@@ -34,21 +34,27 @@ enforces this.
 - **`nodes/`** — one extension file per node/feature. Each registers via
   `app.registerExtension` and targets Python node names in
   `beforeRegisterNodeDef` (names must match `NODE_CLASS_MAPPINGS` keys).
-  - `power_lora_base.js` — shared base for BOTH lora loaders: node machinery,
+  - `power_lora_base.js` — shared base for the lora loader: node machinery,
     header row, single-strength row widget. `power_lora_loader.js` adds the
-    dual model/clip strength mode; `ltx2_power_lora_loader.js` adds the five
-    per-layer strength rows. Fix shared bugs in the base, not in the forks.
-    Serialization shapes are frozen (see root CLAUDE.md contract).
+    dual model/clip strength mode. `power_lora_dom.js` is a parallel DOM-widget
+    implementation of the same rows for Nodes 2.0 — see the note in CLAUDE.md,
+    it is unfinished. Serialization shapes are frozen (see the CLAUDE.md
+    contract).
   - `better_combos.js` — folder-tree/grid combo display for the MXD latent
     loaders (adapted from pysssss; scoped to MXD nodes only; keeps its BOM).
-  - `live_preview_panel.js` — floating panel consuming the
-    `MXD_live_preview_*` websocket events from `system/live_preview.py` and
-    `nodes/ltx/preview.py`.
   - `run_folder.js` — wraps `app.queuePrompt` for batch folder runs; uses
     `/mxd/latents/files`.
+  - `prompt_spellcheck.js` — right-click spelling suggestions in any prompt
+    textarea, using the vendored dictionary in `vendor/spellcheck/`. Also
+    ships standalone as the Spell-Check-MXD pack; both copies claim the shared
+    `window.__mxdPromptSpellcheckActive` flag so installing both attaches it
+    once. If you rename that flag, rename it in BOTH repos.
 
 - **`vendor/zip_loader/`** — vendored drag-drop zip workflow importer +
   bundled `jszip.min.js` (never lint/format the min file).
+- **`vendor/spellcheck/`** — vendored `nspell` browser bundle and English
+  Hunspell dictionary used by `nodes/prompt_spellcheck.js` for fully offline
+  right-click spelling suggestions in prompt textareas.
 
 ## Conventions
 

@@ -11,7 +11,7 @@ Usage (run with the desktop venv python):
 
 Environment:
     COMFYUI_ROOT  path to the installed ComfyUI core
-                  (default: C:\\Users\\user\\AI\\ComfyUI\\resources\\ComfyUI)
+                  (default: C:\\Users\\user\\ComfyUI-Installs\\ComfyUI\\ComfyUI)
 
 Dynamic combo inputs (file/folder lists from folder_paths or disk scans) are
 normalized to presence-only so the dump is stable while the user's model and
@@ -25,7 +25,7 @@ import re
 import sys
 import types
 
-DEFAULT_COMFY = r"C:\Users\user\AI\ComfyUI\resources\ComfyUI"
+DEFAULT_COMFY = r"C:\Users\user\ComfyUI-Installs\ComfyUI\ComfyUI"
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PACK_NAME = "ComfyUI-MaxedOut"
 

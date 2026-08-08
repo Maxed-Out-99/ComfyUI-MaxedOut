@@ -7,6 +7,10 @@ Registered nodes:
 Sigma schedules come from the official Lightricks LTX-2.3 two-stage distilled
 workflow (LTX-2.3_T2V_I2V_Two_Stage_Distilled.json). Custom Sigmas mode accepts
 a manual descending schedule ending in 0.0 for experimentation.
+
+These nodes used to carry an `ltx_preview` toggle that attached a taeltx
+previewer. Live previews now live in the standalone Live-Preview-MXD pack,
+which previews any sampler automatically with nothing to wire or toggle.
 """
 from __future__ import annotations
 import re
@@ -15,13 +19,10 @@ import torch
 
 import comfy
 import comfy.model_management
-import comfy.patcher_extension
 import comfy.samplers
 import comfy.sample
 import comfy.utils
 import latent_preview
-
-from .preview import _load_taeltx, _LTXPreviewWrapper
 
 
 ########################################################################################################################
@@ -75,7 +76,6 @@ class LTXKSamplerMXD:
                         "tooltip": "Only used when mode is Custom Sigmas. Enter comma, space, or newline separated sigma values.",
                     },
                 ),
-                "ltx_preview": ("BOOLEAN", {"default": True, "tooltip": "Show LTX video previews during sampling. Downloads the taeltx VAE to your vae model folder if it is missing."}),
             },
         }
 
@@ -95,7 +95,6 @@ class LTXKSamplerMXD:
         cfg=2.0,
         sampler_name="euler_ancestral_cfg_pp",
         custom_sigmas=_CUSTOM_SIGMAS_DEFAULT,
-        ltx_preview=True,
     ):
         sigmas = _select_sigmas(
             mode,
@@ -105,7 +104,7 @@ class LTXKSamplerMXD:
             custom_sigmas,
             "LTX Stage 1 Sampler MXD",
         )
-        return _run_sampling(model, positive, negative, latent_image, seed, cfg, sampler_name, sigmas, ltx_preview)
+        return _run_sampling(model, positive, negative, latent_image, seed, cfg, sampler_name, sigmas)
 
 
 ########################################################################################################################
@@ -150,7 +149,6 @@ class LTXKSampler2MXD:
                         "tooltip": "Only used when mode is Custom Sigmas. Enter comma, space, or newline separated sigma values.",
                     },
                 ),
-                "ltx_preview": ("BOOLEAN", {"default": True, "tooltip": "Show LTX video previews during sampling. Downloads the taeltx VAE to your vae model folder if it is missing."}),
             },
         }
 
@@ -170,7 +168,6 @@ class LTXKSampler2MXD:
         cfg=1.0,
         sampler_name="euler_cfg_pp",
         custom_sigmas=_CUSTOM_SIGMAS_DEFAULT,
-        ltx_preview=True,
     ):
         sigmas = _select_sigmas(
             mode,
@@ -180,7 +177,7 @@ class LTXKSampler2MXD:
             custom_sigmas,
             "LTX Stage 2 Refiner MXD",
         )
-        return _run_sampling(model, positive, negative, latent_image, seed, cfg, sampler_name, sigmas, ltx_preview)
+        return _run_sampling(model, positive, negative, latent_image, seed, cfg, sampler_name, sigmas)
 
 
 ########################################################################################################################
@@ -223,19 +220,7 @@ def _parse_custom_sigmas(custom_sigmas, node_name):
 
 ########################################################################################################################
 # Shared sampling logic
-def _run_sampling(model, positive, negative, latent_image, seed, cfg, sampler_name, sigmas, ltx_preview=False):
-    taeltx = _load_taeltx() if ltx_preview else None
-    if ltx_preview and taeltx is None:
-        print("[MXD LTX preview] taeltx model not found in vae / vae_approx — skipping preview.")
-
-    if taeltx is not None:
-        model = model.clone()
-        model.add_wrapper_with_key(
-            comfy.patcher_extension.WrappersMP.OUTER_SAMPLE,
-            "ltx_mxd_preview",
-            _LTXPreviewWrapper(taeltx),
-        )
-
+def _run_sampling(model, positive, negative, latent_image, seed, cfg, sampler_name, sigmas):
     guider = comfy.samplers.CFGGuider(model)
     guider.set_conds(positive, negative)
     guider.set_cfg(cfg)

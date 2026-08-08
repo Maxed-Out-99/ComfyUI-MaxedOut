@@ -53,11 +53,23 @@ Leave all three unset and nothing changes -- this is entirely opt-in.
 | Node | What it does |
 |---|---|
 | `Lora Loader MXD` | Based on rgthree Power LoRA Loader. Fixes copy/paste issues, surfaces useful info/remove buttons, and keeps local LoRA info files organized. |
-| `Image Comparer + Save MXD` | Compare original vs new images in-node and save the new result easily. |
+| `Image Comparer MXD` | Compare original vs new images in-node and save the new result easily. |
 | `Video Comparer MXD` | Similar to Image Comparer but for video. |
 | `Flux Empty Latent Image MXD` / `ZIT Empty Latent Image MXD` / `SDXL Empty Latent Image MXD` | Resolution presets plus vertical toggle to avoid retyping the same sizes repeatedly. |
 | `Save Image MXD` | Simple save modes (`Save + Preview`, `Save Only`, `Preview Only`). |
 | `WAN 2.2 MXD` nodes | Helpers for WAN 2.2 latent/video prep, frame tools, and I2V-focused workflows. |
+| Prompt spellcheck | Right-click a misspelled word in any prompt box for suggestions. Works offline, no node to add. |
+
+## Companion Packs
+
+Some things that used to live in here now ship separately, so you can install
+only what you want. Nothing below is required.
+
+| Pack | What it is |
+|---|---|
+| [Live-Preview-MXD](https://github.com/Maxed-Out-99/Live-Preview-MXD) | Watch video generations animate while they render, in a dockable panel. Also adds LTX 2.3 previews, which core can't do at all. |
+| [Prompt-Library-MXD](https://github.com/Maxed-Out-99/Prompt-Library-MXD) | Save named prompt snippets by category and pull them in by name, or let a wildcard pick one at random. |
+| [Spell-Check-MXD](https://github.com/Maxed-Out-99/Spell-Check-MXD) | The prompt spellchecker on its own, if you don't want the rest of this pack. Safe to install alongside — it won't double up. |
 
 ## Free Workflows
 
@@ -81,3 +93,10 @@ Huge thanks to these projects. I have learned a lot from them and built on many 
   Major reference and inspiration for my own nodes.
 
 If you star this repo, definitely consider starring theirs too.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Vendored dependencies keep their own licenses:
+`smart_loaders_mxd/` (GGUF loading, from
+[city96/ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF)) and
+`web/vendor/` each carry their license files alongside the code.

@@ -1,7 +1,7 @@
 """In-node A/B comparers with save.
 
-Registered nodes:
-  Image Comparer + Save MXD  (slider UI in web/nodes/image_comparer.js)
+Registered nodes (internal id, unchanged for workflow compat -> display name):
+  Image Comparer + Save MXD -> "Image Comparer MXD"  (slider UI in web/nodes/image_comparer.js)
   Video Comparer MXD
 """
 import os
@@ -38,11 +38,10 @@ class MxdImageComparerSave(PreviewImage):
             "required": {
                 "mode": ([
                     "Save (New Img) + Preview",
-                    "Save (New Img) Only",
                     "Preview Only"
                 ], {
                     "default": "Save (New Img) + Preview",
-                    "tooltip": "Choose whether to save the new image, preview both, or preview only."
+                    "tooltip": "Choose whether to save the new image or preview only."
                 }),
                 "filename_prefix": ("STRING", {
                     "default": "ComfyUI",
@@ -64,17 +63,13 @@ class MxdImageComparerSave(PreviewImage):
             return "{}_{}".format(base_prefix, suffix)
         return base_prefix
 
-    def _process_images(self, images, prefix, save_this, preview, prompt, extra_pnginfo):
+    def _process_images(self, images, prefix, save_this, prompt, extra_pnginfo):
         if images is None or len(images) == 0:
             return []
         if save_this:
             result = SaveImage().save_images(images, prefix, prompt, extra_pnginfo)
-        elif preview:
-            result = PreviewImage().save_images(images, prefix, prompt, extra_pnginfo)
         else:
-            return []
-        if not preview:
-            return []
+            result = PreviewImage().save_images(images, prefix, prompt, extra_pnginfo)
         if isinstance(result, dict):
             return result.get("ui", {}).get("images", [])
         return []
@@ -90,10 +85,7 @@ class MxdImageComparerSave(PreviewImage):
         original_image = kwargs.get("original_image", kwargs.get("original_image (displayed on slide)"))
         new_image = kwargs.get(new_key, kwargs.get("new_image"))
 
-        preview = mode != "Save (New Img) Only"
-        save_enabled = mode != "Preview Only"
-        save_original = False
-        save_new = save_enabled
+        save_new = mode != "Preview Only"
 
         original_has = original_image is not None and len(original_image) > 0
         new_has = new_image is not None and len(new_image) > 0
@@ -106,24 +98,20 @@ class MxdImageComparerSave(PreviewImage):
             new_image,
             new_prefix,
             save_new,
-            preview,
             prompt,
             extra_pnginfo
         )
         result_ui["b_images"] = self._process_images(
             original_image,
             original_prefix,
-            save_original,
-            preview,
+            False,
             prompt,
             extra_pnginfo
         )
 
-        if preview:
-            # Also publish standard ui.images so the sidebar shows previews.
-            result_ui["images"] = result_ui["a_images"] + result_ui["b_images"]
-            return {"ui": result_ui}
-        return {}
+        # Also publish standard ui.images so the sidebar shows previews.
+        result_ui["images"] = result_ui["a_images"] + result_ui["b_images"]
+        return {"ui": result_ui}
 
 
 class MxdVideoComparer:
@@ -191,6 +179,6 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    MxdImageComparerSave.NAME: "Image Comparer + Save MXD",
+    MxdImageComparerSave.NAME: "Image Comparer MXD",
     MxdVideoComparer.NAME: "Video Comparer MXD",
 }

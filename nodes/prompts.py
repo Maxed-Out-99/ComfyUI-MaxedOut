@@ -2,6 +2,8 @@
 
 Registered nodes:
   Prompt With Guidance (Flux)  Prompt with Flux Guidance MXD
+  KreaSeedVarianceMXD          Krea Seed Variance
+  KreaLayerVarianceMXD         Krea Layer Variance
   QwenImageEditSingleMXD       Qwen Image Edit + Latent MXD   (needs comfy_api)
   QwenImageEditTripleMXD       Qwen Image Edit Prompt MXD (Triple)  (needs comfy_api)
 """
@@ -42,6 +44,208 @@ class PromptWithGuidance(ComfyNodeABC):
         conditioning = clip.encode_from_tokens_scheduled(tokens)
         conditioning = node_helpers.conditioning_set_values(conditioning, {"guidance": guidance})
         return (conditioning,)
+
+########################################################################################################################
+# Krea 2 Turbo seed variance
+
+_KREA_TAP_COUNT = 12
+_KREA_TAP_DIM = 2560
+_KREA_FEATURE_DIM = _KREA_TAP_COUNT * _KREA_TAP_DIM
+
+
+def _early_conditioning(clean_conditioning, noisy_conditioning, end_percent):
+    early = node_helpers.conditioning_set_values(
+        noisy_conditioning,
+        {"start_percent": 0.0, "end_percent": end_percent},
+    )
+    late = node_helpers.conditioning_set_values(
+        clean_conditioning,
+        {"start_percent": end_percent, "end_percent": 1.0},
+    )
+    return early + late
+
+
+def _conditioning_with_tensor(conditioning_entry, tensor):
+    if len(conditioning_entry) < 2:
+        return conditioning_entry
+    return (tensor, conditioning_entry[1].copy())
+
+
+class KreaSeedVarianceMXD(ComfyNodeABC):
+    DESCRIPTION = (
+        "Adds seed-dependent Gaussian noise to a small fraction of Krea conditioning values during the first 20% "
+        "of sampling. Amount 20 matches the Balanced Krea behavior of RBG Smart Seed Variance."
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls) -> InputTypeDict:
+        return {
+            "required": {
+                "conditioning": (IO.CONDITIONING,),
+                "amount": (
+                    "FLOAT",
+                    {
+                        "default": 20.0,
+                        "min": 0.0,
+                        "max": 50.0,
+                        "step": 0.5,
+                        "tooltip": "20 matches the RBG Balanced preset for Krea 2. Higher values increase both the noise and the fraction changed.",
+                    },
+                ),
+                "seed": (
+                    "INT",
+                    {
+                        "default": 0,
+                        "min": 0,
+                        "max": 0xFFFFFFFFFFFFFFFF,
+                        "control_after_generate": True,
+                        "tooltip": "Controls only the conditioning variation. Set this widget to randomize or increment between generations.",
+                    },
+                ),
+            }
+        }
+
+    RETURN_TYPES = (IO.CONDITIONING,)
+    RETURN_NAMES = ("conditioning",)
+    FUNCTION = "apply_variance"
+    CATEGORY = "MXD/conditioning"
+
+    def apply_variance(self, conditioning, amount, seed):
+        if amount <= 0.0:
+            return (conditioning,)
+
+        # RBG couples density and amplitude. At amount 20 this is 1.9% of Krea values with Gaussian sigma 20.
+        density = min(1.0, amount * 0.00095)
+        noisy_conditioning = []
+
+        for index, entry in enumerate(conditioning):
+            if len(entry) < 2 or not isinstance(entry[0], torch.Tensor):
+                noisy_conditioning.append(entry)
+                continue
+
+            source = entry[0]
+            modified = source.clone()
+            generator = torch.Generator(device=source.device)
+            generator.manual_seed((int(seed) + index) % (1 << 64))
+
+            flat = modified.reshape(-1)
+            selected = torch.rand(flat.shape, device=flat.device, generator=generator) < density
+            selected_count = int(selected.sum().item())
+            if selected_count:
+                noise = torch.randn(
+                    selected_count,
+                    device=flat.device,
+                    dtype=flat.dtype,
+                    generator=generator,
+                )
+                flat[selected] += noise * amount
+
+            noisy_conditioning.append(_conditioning_with_tensor(entry, modified))
+
+        return (_early_conditioning(conditioning, noisy_conditioning, 0.20),)
+
+
+class KreaLayerVarianceMXD(ComfyNodeABC):
+    DESCRIPTION = (
+        "Applies a seeded, norm-preserving rotation to each active token in each of Krea 2's 12 text-encoder "
+        "layers during the first 25% of sampling. This is experimental and designed specifically for Krea 2."
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls) -> InputTypeDict:
+        return {
+            "required": {
+                "conditioning": (IO.CONDITIONING,),
+                "strength": (
+                    "FLOAT",
+                    {
+                        "default": 6.0,
+                        "min": 0.0,
+                        "max": 45.0,
+                        "step": 0.5,
+                        "tooltip": "Rotation in degrees within each Krea text layer. Start at 6; raise gradually for more variation.",
+                    },
+                ),
+                "seed": (
+                    "INT",
+                    {
+                        "default": 0,
+                        "min": 0,
+                        "max": 0xFFFFFFFFFFFFFFFF,
+                        "control_after_generate": True,
+                        "tooltip": "Controls only the layer-aware conditioning variation. Set this widget to randomize or increment between generations.",
+                    },
+                ),
+            }
+        }
+
+    RETURN_TYPES = (IO.CONDITIONING,)
+    RETURN_NAMES = ("conditioning",)
+    FUNCTION = "apply_variance"
+    CATEGORY = "MXD/conditioning"
+
+    @staticmethod
+    def _active_tokens(metadata, tensor):
+        attention_mask = metadata.get("attention_mask")
+        if not isinstance(attention_mask, torch.Tensor):
+            return None
+
+        mask = attention_mask.to(device=tensor.device, dtype=torch.bool)
+        if mask.ndim == 1:
+            mask = mask.unsqueeze(0)
+        if mask.ndim != 2 or mask.shape[-1] != tensor.shape[1]:
+            return None
+        if mask.shape[0] == 1 and tensor.shape[0] != 1:
+            mask = mask.expand(tensor.shape[0], -1)
+        if mask.shape[0] != tensor.shape[0]:
+            return None
+        return mask
+
+    def apply_variance(self, conditioning, strength, seed):
+        if strength <= 0.0:
+            return (conditioning,)
+
+        angle = math.radians(min(float(strength), 45.0))
+        cosine = math.cos(angle)
+        sine = math.sin(angle)
+        noisy_conditioning = []
+
+        for index, entry in enumerate(conditioning):
+            if len(entry) < 2 or not isinstance(entry[0], torch.Tensor):
+                noisy_conditioning.append(entry)
+                continue
+
+            source = entry[0]
+            if source.ndim != 3 or source.shape[-1] != _KREA_FEATURE_DIM:
+                raise ValueError(
+                    "Krea Layer Variance requires Krea 2 conditioning shaped [batch, tokens, 30720] "
+                    "from a CLIP loader using type 'krea2'."
+                )
+
+            original_dtype = source.dtype
+            layers = source.reshape(source.shape[0], source.shape[1], _KREA_TAP_COUNT, _KREA_TAP_DIM).float()
+            generator = torch.Generator(device=source.device)
+            generator.manual_seed((int(seed) + index) % (1 << 64))
+            noise = torch.randn(layers.shape, device=source.device, dtype=torch.float32, generator=generator)
+
+            source_norm_sq = torch.sum(layers * layers, dim=-1, keepdim=True)
+            projection = torch.sum(noise * layers, dim=-1, keepdim=True) / source_norm_sq.clamp_min(1e-12)
+            noise.sub_(projection * layers)
+
+            source_norm = torch.sqrt(source_norm_sq)
+            noise_norm = torch.linalg.vector_norm(noise, dim=-1, keepdim=True).clamp_min(1e-12)
+            noise.mul_(source_norm / noise_norm)
+            rotated = layers.mul(cosine).add_(noise, alpha=sine)
+
+            active_tokens = self._active_tokens(entry[1], source)
+            if active_tokens is not None:
+                rotated = torch.where(active_tokens[:, :, None, None], rotated, layers)
+
+            modified = rotated.reshape_as(source).to(dtype=original_dtype)
+            noisy_conditioning.append(_conditioning_with_tensor(entry, modified))
+
+        return (_early_conditioning(conditioning, noisy_conditioning, 0.25),)
+
 
 ########################################################################################################################
 if HAVE_COMFY_API:
@@ -205,6 +409,8 @@ if HAVE_COMFY_API:
 
 NODE_CLASS_MAPPINGS = {
     "Prompt With Guidance (Flux)": PromptWithGuidance,
+    "KreaSeedVarianceMXD": KreaSeedVarianceMXD,
+    "KreaLayerVarianceMXD": KreaLayerVarianceMXD,
 }
 
 if HAVE_COMFY_API:
@@ -215,6 +421,8 @@ if HAVE_COMFY_API:
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "Prompt With Guidance (Flux)": "Prompt with Flux Guidance MXD",
+    "KreaSeedVarianceMXD": "Krea Seed Variance",
+    "KreaLayerVarianceMXD": "Krea Layer Variance",
 }
 
 if HAVE_COMFY_API:

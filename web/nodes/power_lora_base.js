@@ -1,16 +1,18 @@
-// Shared base for the two Power Lora Loader nodes.
+// Shared base for the Power Lora Loader nodes.
 //
-//   power_lora_loader.js      "Lora Loader MXD"      (dual model/clip strength)
-//   ltx2_power_lora_loader.js "LTX2 Lora Loader MXD" (per-layer strength rows)
+//   power_lora_loader.js "Lora Loader MXD" (dual model/clip strength)
 //
 // Everything generic lives here: the node-class machinery (configure /
 // serialization round-trip, API-JSON restore, slot menus, toggle-all), the
-// header row, and the single-strength lora row widget. The two node files
-// subclass and override only what genuinely differs. Serialization formats
-// are unchanged from the pre-merge forks — widget names ("lora_N"), value
-// shapes ({on, lora, strength[, strengthTwo]} and
-// {type: "Ltx2StrengthWidget", key, value}) must never change, or saved
+// header row, and the single-strength lora row widget. A node file subclasses
+// and overrides only what genuinely differs. Serialization formats are
+// unchanged from the pre-merge forks — widget names ("lora_N") and value
+// shapes ({on, lora, strength[, strengthTwo]}) must never change, or saved
 // workflows break.
+//
+// This was a two-subclass base until the LTX2 Lora Loader was dropped; the
+// subclass seam is kept because it is what makes the format guarantee above
+// enforceable in one place.
 import { app } from "../../../scripts/app.js";
 import { MxdBaseServerNode } from "../lib/mxd_base_node.js";
 import { mxdRuntime } from "../lib/mxd_runtime.js";
@@ -29,10 +31,18 @@ import {
   MxdDividerWidget,
 } from "../lib/mxd_utils_widgets.js";
 import { mxdApi } from "../lib/mxd_api.js";
+import { nodeDrawWidth } from "../lib/mxd_nodes2.js";
 import { showLoraChooser } from "../lib/mxd_utils_menu.js";
 import { moveArrayItem, removeArrayItem } from "../lib/mxd_shared_utils.js";
 import { MxdLoraInfoDialog } from "../lib/mxd_dialog_info.js";
 import { LORA_INFO_SERVICE } from "../lib/mxd_model_info_service.js";
+import {
+  addDomAddLoraButton,
+  addDomHeaderRow,
+  addDomLoraRow,
+  refreshPowerLoraDom,
+  usePowerLoraDom,
+} from "./power_lora_dom.js";
 
 export const PROP_LABEL_SHOW_STRENGTHS = "Show Strengths";
 export const PROP_LABEL_SHOW_STRENGTHS_STATIC = `@${PROP_LABEL_SHOW_STRENGTHS}`;
@@ -40,8 +50,11 @@ export const PROP_VALUE_SHOW_STRENGTHS_SINGLE = "Single Strength";
 export const PROP_VALUE_SHOW_STRENGTHS_SEPARATE = "Separate Model & Clip";
 
 export class MxdPowerLoraLoaderBase extends MxdBaseServerNode {
-  // Subclasses set this to their lora row widget class.
+  // Subclasses set this to their canvas-drawn lora row widget class.
   static loraWidgetClass = null;
+  // Whether this node's rows can show separate model/clip strengths. Only
+  // consulted by the HTML rows; the canvas rows read the property directly.
+  static loraRowSupportsDual = false;
 
   constructor(title = new.target.title, loggerName = "[Power Lora Loader]") {
     super(title);
@@ -49,6 +62,9 @@ export class MxdPowerLoraLoaderBase extends MxdBaseServerNode {
     this.logger = mxdRuntime.newLogSession(loggerName);
     this.loraWidgetsCounter = 0;
     this.widgetButtonSpacer = null;
+    // Decided once per node so a node never mixes canvas and HTML rows if the
+    // setting changes while it exists. Both implementations serialize the same.
+    this.usesDomRows = usePowerLoraDom();
 
     mxdApi.getLoras();
 
@@ -156,10 +172,18 @@ export class MxdPowerLoraLoaderBase extends MxdBaseServerNode {
     this.setDirtyCanvas(true, true);
   }
 
+  // True when the node shows separate model & clip strength columns. Nodes
+  // without the "Show Strengths" property (e.g. the LTX2 loader) never do.
+  isShowingSeparateStrengths() {
+    return this.properties?.[PROP_LABEL_SHOW_STRENGTHS] === PROP_VALUE_SHOW_STRENGTHS_SEPARATE;
+  }
+
   addNewLoraWidget(lora) {
     this.loraWidgetsCounter++;
-    const widgetClass = this.constructor.loraWidgetClass;
-    const widget = this.addCustomWidget(new widgetClass("lora_" + this.loraWidgetsCounter));
+    const name = "lora_" + this.loraWidgetsCounter;
+    const widget = this.usesDomRows
+      ? addDomLoraRow(this, name, { dual: this.constructor.loraRowSupportsDual })
+      : this.addCustomWidget(new this.constructor.loraWidgetClass(name));
     if (lora) widget.setLora(lora);
     if (this.widgetButtonSpacer) {
       moveArrayItem(this.widgets, widget, this.widgets.indexOf(this.widgetButtonSpacer));
@@ -174,7 +198,14 @@ export class MxdPowerLoraLoaderBase extends MxdBaseServerNode {
       this.addCustomWidget(new MxdDividerWidget({ marginTop: 4, marginBottom: 0, thickness: 0 })),
       0,
     );
-    moveArrayItem(this.widgets, this.addCustomWidget(new PowerLoraLoaderHeaderWidget()), 1);
+    moveArrayItem(this.widgets, this.addHeaderRowWidget(), 1);
+  }
+
+  // The toggle-all / column-caption row, in whichever style this node uses.
+  addHeaderRowWidget() {
+    return this.usesDomRows
+      ? addDomHeaderRow(this, { dual: this.constructor.loraRowSupportsDual })
+      : this.addCustomWidget(new PowerLoraLoaderHeaderWidget());
   }
 
   addNonLoraWidgets() {
@@ -183,6 +214,11 @@ export class MxdPowerLoraLoaderBase extends MxdBaseServerNode {
     this.widgetButtonSpacer = this.addCustomWidget(
       new MxdDividerWidget({ marginTop: 4, marginBottom: 0, thickness: 0 }),
     );
+
+    if (this.usesDomRows) {
+      addDomAddLoraButton(this, (value) => this.addNewLoraWidget(value));
+      return;
+    }
 
     this.addCustomWidget(
       new MxdBetterButtonWidget("+ Add Lora", (event, pos, node) => {
@@ -242,6 +278,7 @@ export class MxdPowerLoraLoaderBase extends MxdBaseServerNode {
           content: `${widget.value.on ? "Disable" : "Enable"}`,
           callback: () => {
             widget.value.on = !widget.value.on;
+            refreshPowerLoraDom(this);
           },
         },
         {
@@ -249,6 +286,7 @@ export class MxdPowerLoraLoaderBase extends MxdBaseServerNode {
           disabled: !canMoveUp,
           callback: () => {
             moveArrayItem(this.widgets, widget, index - 1);
+            refreshPowerLoraDom(this);
           },
         },
         {
@@ -256,12 +294,16 @@ export class MxdPowerLoraLoaderBase extends MxdBaseServerNode {
           disabled: !canMoveDown,
           callback: () => {
             moveArrayItem(this.widgets, widget, index + 1);
+            refreshPowerLoraDom(this);
           },
         },
         {
           content: `Remove`,
           callback: () => {
-            removeArrayItem(this.widgets, widget);
+            // removeWidget (unlike removeArrayItem) fires onRemove, which the
+            // HTML rows need in order to detach their element.
+            this.removeWidget(widget);
+            refreshPowerLoraDom(this);
           },
         },
       ];
@@ -304,6 +346,7 @@ export class MxdPowerLoraLoaderBase extends MxdBaseServerNode {
         widget.value.on = toggledTo;
       }
     }
+    refreshPowerLoraDom(this);
   }
 
   static setUp(comfyClass, nodeData) {
@@ -342,6 +385,7 @@ export class PowerLoraLoaderHeaderWidget extends MxdBaseWidget {
     const innerMargin = margin * 0.33;
     const lowQuality = isLowQuality();
     const allLoraState = node.allLorasState();
+    const width = nodeDrawWidth(node, w);
 
     posY += 2;
     const midY = posY + height * 0.5;
@@ -357,7 +401,7 @@ export class PowerLoraLoaderHeaderWidget extends MxdBaseWidget {
       ctx.textBaseline = "middle";
       ctx.fillText("Toggle All", posX, midY);
 
-      let rposX = node.size[0] - margin - innerMargin - innerMargin;
+      let rposX = width - margin - innerMargin - innerMargin;
       ctx.textAlign = "center";
       ctx.fillText(this.showModelAndClip ? "Clip" : "Strength", rposX - drawNumberWidgetPart.WIDTH_TOTAL / 2, midY);
       if (this.showModelAndClip) {
@@ -420,9 +464,11 @@ export class PowerLoraBaseWidget extends MxdBaseWidget {
 
   // Shared drawing pieces -----------------------------------------------
 
-  drawRowBackgroundAndToggle(ctx, node, posY, height, margin, innerMargin) {
+  // `width` is the widget's drawing surface (see nodeDrawWidth); it defaults to
+  // the node width so any caller that omits it keeps the classic behavior.
+  drawRowBackgroundAndToggle(ctx, node, posY, height, margin, innerMargin, width = node.size?.[0] ?? 0) {
     let posX = margin;
-    drawRoundedRectangle(ctx, { pos: [posX, posY], size: [node.size[0] - margin * 2, height] });
+    drawRoundedRectangle(ctx, { pos: [posX, posY], size: [width - margin * 2, height] });
     this.hitAreas.toggle.bounds = drawTogglePart(ctx, { posX, posY, height, value: this.value.on });
     posX += this.hitAreas.toggle.bounds[1] + innerMargin;
     return posX;
@@ -492,8 +538,9 @@ export class PowerLoraBaseWidget extends MxdBaseWidget {
     const innerMargin = margin * 0.33;
     const lowQuality = isLowQuality();
     const midY = posY + height * 0.5;
+    const width = nodeDrawWidth(node, w);
 
-    const posX = this.drawRowBackgroundAndToggle(ctx, node, posY, height, margin, innerMargin);
+    const posX = this.drawRowBackgroundAndToggle(ctx, node, posY, height, margin, innerMargin, width);
 
     if (lowQuality) {
       ctx.restore();
@@ -509,7 +556,7 @@ export class PowerLoraBaseWidget extends MxdBaseWidget {
     const strengthValue = this.value.strength ?? 1;
 
     const [leftArrow, text, rightArrow] = drawNumberWidgetPart(ctx, {
-      posX: node.size[0] - margin - innerMargin - innerMargin,
+      posX: width - margin - innerMargin - innerMargin,
       posY,
       height,
       value: strengthValue,

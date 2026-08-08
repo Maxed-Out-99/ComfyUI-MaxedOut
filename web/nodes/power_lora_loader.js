@@ -2,6 +2,7 @@
 // strengths (the "Show Strengths" node property). Shared machinery lives in
 // power_lora_base.js; this file only adds the dual-strength row behavior.
 import { app } from "../../../scripts/app.js";
+import { nodeDrawWidth } from "../lib/mxd_nodes2.js";
 import { drawNumberWidgetPart, isLowQuality } from "../lib/mxd_utils_canvas.js";
 import {
   MxdPowerLoraLoaderBase,
@@ -18,6 +19,8 @@ class MxdPowerLoraLoader extends MxdPowerLoraLoaderBase {
   static title = NODE_TYPE;
   static type = NODE_TYPE;
   static comfyClass = NODE_TYPE;
+  // This node's "Show Strengths" property can split model/clip strengths.
+  static loraRowSupportsDual = true;
 
   static [PROP_LABEL_SHOW_STRENGTHS_STATIC] = {
     type: "combo",
@@ -85,8 +88,9 @@ class PowerLoraLoaderWidget extends PowerLoraBaseWidget {
     const innerMargin = margin * 0.33;
     const lowQuality = isLowQuality();
     const midY = posY + height * 0.5;
+    const width = nodeDrawWidth(node, w);
 
-    const posX = this.drawRowBackgroundAndToggle(ctx, node, posY, height, margin, innerMargin);
+    const posX = this.drawRowBackgroundAndToggle(ctx, node, posY, height, margin, innerMargin, width);
 
     if (lowQuality) {
       ctx.restore();
@@ -103,7 +107,7 @@ class PowerLoraLoaderWidget extends PowerLoraBaseWidget {
     const strengthValue = this.showModelAndClip ? (this.value.strengthTwo ?? 1) : (this.value.strength ?? 1);
 
     const [leftArrow, text, rightArrow] = drawNumberWidgetPart(ctx, {
-      posX: node.size[0] - margin - innerMargin - innerMargin,
+      posX: width - margin - innerMargin - innerMargin,
       posY,
       height,
       value: strengthValue,

@@ -31,6 +31,93 @@ except Exception as _e:
 from .buckets import _wan22_scale_image_core
 
 
+def build_wan22_i2v_conditioning(positive, negative, vae, length, start_image):
+    """Bake `start_image` into WAN 2.2 I2V conditioning; returns (positive, negative).
+
+    `start_image` is [F, H, W, C] and already pre-sized; its first `min(F, length)`
+    frames become the known frames, the rest of the clip is filled with neutral
+    grey and left for the model. Split out of Wan22ImageToVideoMXD so a caller
+    can rebuild the conditioning from a crop of the reference frame -- encoding
+    a crop is exact, where cropping the encode would not be.
+    """
+    if start_image is None:
+        raise ValueError("start_image must be provided (already pre-sized).")
+
+    frames_in, ih, iw, ch = start_image.shape
+    frames_used = min(frames_in, length)
+    t = ((length - 1) // 4) + 1
+
+    # create placeholder image tensor
+    image = torch.ones(
+        (length, ih, iw, ch),
+        device=start_image.device,
+        dtype=start_image.dtype
+    ) * 0.5
+    image[:frames_used] = start_image[:frames_used]
+
+    # encode using VAE
+    concat_latent_image = vae.encode(image[:, :, :, :3])
+
+    # mask zeros out the frames used
+    mask = torch.ones(
+        (1, 1, t, concat_latent_image.shape[-2], concat_latent_image.shape[-1]),
+        device=image.device,
+        dtype=image.dtype
+    )
+    mask[:, :, :((frames_used - 1) // 4) + 1] = 0.0
+
+    positive = node_helpers.conditioning_set_values(
+        positive, {"concat_latent_image": concat_latent_image, "concat_mask": mask}
+    )
+    negative = node_helpers.conditioning_set_values(
+        negative, {"concat_latent_image": concat_latent_image, "concat_mask": mask}
+    )
+    return positive, negative
+
+
+def build_wan22_flf_conditioning(positive, negative, vae, length, height, width,
+                                 start_image=None, end_image=None):
+    """Bake start and/or end frames into WAN 2.2 conditioning; returns (positive, negative).
+
+    The first/last variant of build_wan22_i2v_conditioning: known frames are
+    pinned at both ends of the clip and the mask frees only the middle. Note the
+    mask layout differs from the plain I2V one -- it is built at full frame rate
+    and folded to (1, 4, t, h, w) rather than (1, 1, t, h, w).
+
+    Split out of Wan22FirstLastImageToVideoMXD so a caller can rebuild the
+    conditioning from crops of the reference frames.
+    """
+    if start_image is None and end_image is None:
+        raise ValueError("at least one of start_image / end_image must be provided.")
+
+    spacial_scale = vae.spacial_compression_encode()
+    latent_length = ((length - 1) // 4) + 1
+
+    image = torch.ones((length, height, width, 3)) * 0.5
+    mask = torch.ones(
+        (1, 1, latent_length * 4, height // spacial_scale, width // spacial_scale)
+    )
+
+    if start_image is not None:
+        image[:start_image.shape[0]] = start_image
+        mask[:, :, :start_image.shape[0] + 3] = 0.0
+
+    if end_image is not None:
+        image[-end_image.shape[0]:] = end_image
+        mask[:, :, -end_image.shape[0]:] = 0.0
+
+    concat_latent_image = vae.encode(image[:, :, :, :3])
+    mask = mask.view(1, mask.shape[2] // 4, 4, mask.shape[3], mask.shape[4]).transpose(1, 2)
+
+    positive = node_helpers.conditioning_set_values(
+        positive, {"concat_latent_image": concat_latent_image, "concat_mask": mask}
+    )
+    negative = node_helpers.conditioning_set_values(
+        negative, {"concat_latent_image": concat_latent_image, "concat_mask": mask}
+    )
+    return positive, negative
+
+
 def _resample_video_frames_to_fps(frames, in_fps, out_fps):
     """
     Resample a frame sequence to a target FPS using nearest-frame selection.
@@ -101,7 +188,6 @@ if HAVE_COMFY_API:
                 raise ValueError("start_image must be provided (already pre-sized).")
 
             frames_in, ih, iw, ch = start_image.shape
-            frames_used = min(frames_in, length)
             t = ((length - 1) // 4) + 1
 
             latent = torch.zeros(
@@ -109,30 +195,8 @@ if HAVE_COMFY_API:
                 device=comfy.model_management.intermediate_device()
             )
 
-            # create placeholder image tensor
-            image = torch.ones(
-                (length, ih, iw, ch),
-                device=start_image.device,
-                dtype=start_image.dtype
-            ) * 0.5
-            image[:frames_used] = start_image[:frames_used]
-
-            # encode using VAE
-            concat_latent_image = vae.encode(image[:, :, :, :3])
-
-            # mask zeros out the frames used
-            mask = torch.ones(
-                (1, 1, t, concat_latent_image.shape[-2], concat_latent_image.shape[-1]),
-                device=image.device,
-                dtype=image.dtype
-            )
-            mask[:, :, :((frames_used - 1) // 4) + 1] = 0.0
-
-            positive = node_helpers.conditioning_set_values(
-                positive, {"concat_latent_image": concat_latent_image, "concat_mask": mask}
-            )
-            negative = node_helpers.conditioning_set_values(
-                negative, {"concat_latent_image": concat_latent_image, "concat_mask": mask}
+            positive, negative = build_wan22_i2v_conditioning(
+                positive, negative, vae, length, start_image
             )
 
             out_latent = {"samples": latent}
@@ -261,22 +325,9 @@ if HAVE_COMFY_API:
                 device=comfy.model_management.intermediate_device()
             )
 
-            image = torch.ones((length, height, width, 3)) * 0.5
-            mask = torch.ones((1, 1, latent.shape[2] * 4, latent.shape[-2], latent.shape[-1]))
-
-            if start_image is not None:
-                image[:start_image.shape[0]] = start_image
-                mask[:, :, :start_image.shape[0] + 3] = 0.0
-
-            if end_image is not None:
-                image[-end_image.shape[0]:] = end_image
-                mask[:, :, -end_image.shape[0]:] = 0.0
-
-            concat_latent_image = vae.encode(image[:, :, :, :3])
-            mask = mask.view(1, mask.shape[2] // 4, 4, mask.shape[3], mask.shape[4]).transpose(1, 2)
-
-            positive = node_helpers.conditioning_set_values(positive, {"concat_latent_image": concat_latent_image, "concat_mask": mask})
-            negative = node_helpers.conditioning_set_values(negative, {"concat_latent_image": concat_latent_image, "concat_mask": mask})
+            positive, negative = build_wan22_flf_conditioning(
+                positive, negative, vae, length, height, width, start_image, end_image
+            )
 
             out_latent = {"samples": latent}
             return io.NodeOutput(positive, negative, out_latent)

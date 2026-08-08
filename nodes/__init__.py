@@ -25,7 +25,6 @@ for _name in (
     "media_io",
     "comparers",
     "checkpoints",
-    "ffgo",
     "wan22",
     "ltx",
 ):

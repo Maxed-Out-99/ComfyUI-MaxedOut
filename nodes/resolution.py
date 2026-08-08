@@ -5,10 +5,11 @@ Registered nodes:
   Flux Image Scale To Total Pixels (Flux Safe)  Scale Flux Image MXD
   FluxResolutionMatcher                          Flux Resolution Matcher MXD
   SDXLResolutionMatcher                          SDXL Resolution Matcher MXD
+  ResolutionSelectorMXD                          Resolution Selector MXD
 """
 from __future__ import annotations
 import math, comfy, comfy.utils, torch
-from .latents import SdxlEmptyLatentImage
+from .latents import SdxlEmptyLatentImage, ResolutionSelectorEmptyLatentImage
 
 ########################################################################################################################
 # Image Scale To Total Pixels (SDXL Safe)
@@ -280,12 +281,71 @@ class SDXLResolutionMatcher:
 
         return (best_res_string, is_vertical)
 ########################################################################################################################
+class ResolutionSelectorMXD:
+    DESCRIPTION = """Calculate width and height from aspect ratio and megapixel target, with a vertical toggle. Same math as core's Resolution Selector node, minus the separate portrait/landscape entries."""
+    CATEGORY = "MXD/Latent"
+    FUNCTION = "calculate"
+    RETURN_TYPES = ("INT", "INT")
+    RETURN_NAMES = ("width", "height")
+    OUTPUT_TOOLTIPS = ("Calculated width in pixels.", "Calculated height in pixels.")
+
+    # Reuse the same ratio set as the empty-latent version so both nodes agree.
+    ASPECT_RATIOS = ResolutionSelectorEmptyLatentImage.ASPECT_RATIOS
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict:
+        return {
+            "required": {
+                "aspect_ratio": (
+                    list(cls.ASPECT_RATIOS.keys()),
+                    {"default": "Square (1:1)"}
+                ),
+                "megapixels": (
+                    "FLOAT",
+                    {
+                        "default": 1.0,
+                        "min": 0.1,
+                        "max": 16.0,
+                        "step": 0.1,
+                        "tooltip": "Target total megapixels. 1.0 MP ≈ 1024x1024 for square."
+                    }
+                ),
+                "vertical": ("BOOLEAN", {"default": False}),
+            },
+            "optional": {
+                "multiple": (
+                    "INT",
+                    {
+                        "default": 8,
+                        "min": 8,
+                        "max": 128,
+                        "step": 4,
+                        "tooltip": "Round the calculated resolution to the nearest multiple of this value.",
+                        "advanced": True
+                    }
+                ),
+            }
+        }
+
+    def calculate(self, aspect_ratio, megapixels, vertical, multiple=8) -> tuple:
+        w_ratio, h_ratio = self.ASPECT_RATIOS[aspect_ratio]
+        total_pixels = megapixels * 1024 * 1024
+        scale = math.sqrt(total_pixels / (w_ratio * h_ratio))
+        width = round(w_ratio * scale / multiple) * multiple
+        height = round(h_ratio * scale / multiple) * multiple
+
+        if vertical:
+            width, height = height, width
+
+        return (width, height)
+########################################################################################################################
 
 NODE_CLASS_MAPPINGS = {
     "Image Scale To Total Pixels (SDXL Safe)": SDXLImageScaleToTotalPixelsSafe,
     "Flux Image Scale To Total Pixels (Flux Safe)": FluxImageScaleToTotalPixelsSafe,
     "FluxResolutionMatcher": FluxResolutionMatcher,
     "SDXLResolutionMatcher": SDXLResolutionMatcher,
+    "ResolutionSelectorMXD": ResolutionSelectorMXD,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -293,4 +353,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Flux Image Scale To Total Pixels (Flux Safe)": "Scale Flux Image MXD",
     "FluxResolutionMatcher": "Flux Resolution Matcher MXD",
     "SDXLResolutionMatcher": "SDXL Resolution Matcher MXD",
+    "ResolutionSelectorMXD": "Resolution Selector MXD",
 }

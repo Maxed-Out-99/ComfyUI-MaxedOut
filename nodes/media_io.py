@@ -7,6 +7,7 @@ Registered nodes:
   LoadVideoFromFolderMXD           Load Video (From Folder) MXD
   LoadImageWithPromptsMXD          Load Image MXD
   Save Image MXD                   Save Image MXD
+  SaveImageDatasetMXD               Save Image (Dataset) MXD
   Extract Workflow From Image MXD  Extract Workflow From Image MXD
 
 Routes: GET /mxd/image_batch/folders, /mxd/video_batch/folders,
@@ -17,6 +18,8 @@ from __future__ import annotations
 import torch, os, folder_paths, node_helpers, json, hashlib
 import numpy as np
 from PIL import Image, ImageOps, ImageSequence
+from PIL.PngImagePlugin import PngInfo
+from comfy.cli_args import args
 from nodes import PreviewImage, SaveImage
 try:
     from comfy_api.input_impl import VideoFromFile
@@ -707,6 +710,91 @@ class SaveImage_MXD:
 
 ########################################################################################################################
 
+class SaveImageDatasetMXD:
+    TITLE = "Save Image (Dataset) MXD"
+    CATEGORY = "MXD/Image"
+    OUTPUT_NODE = True
+    FUNCTION = "save"
+
+    DESCRIPTION = (
+        "Save images under an exact filename with no prefix or counter, for round-tripping "
+        "image+caption datasets: load from a folder, process, save back using the same base "
+        "name so the sidecar .txt still matches."
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "images": ("IMAGE", {"tooltip": "Images to save."}),
+                "filename": ("STRING", {
+                    "default": "",
+                    "tooltip": "Exact base filename to save as. Any extension is stripped and "
+                               "replaced with .png. Connect the 'filename' output of Load Image "
+                               "(From Folder) MXD to keep dataset pairing with a sidecar .txt.",
+                }),
+                "source": (("inputs", "outputs"), {
+                    "default": "inputs",
+                    "tooltip": "Folder root to save into.",
+                }),
+                "subfolder": ("STRING", {
+                    "default": "",
+                    "tooltip": "Optional subfolder under the source root, e.g. 'flux_processed'. "
+                               "Use a different subfolder than your source images so you don't "
+                               "overwrite the originals.",
+                }),
+            },
+            "optional": {
+                "embed_workflow": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "Embed workflow metadata in the saved PNG.",
+                }),
+            },
+            "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("filename",)
+    OUTPUT_TOOLTIPS = ("The filename(s) written, one per line if the batch had more than one image.",)
+
+    def save(self, images, filename, source="inputs", subfolder="", embed_workflow=False, prompt=None, extra_pnginfo=None):
+        base = os.path.splitext(os.path.basename((filename or "").strip()))[0]
+        if not base:
+            raise ValueError("[SaveImageDatasetMXD] 'filename' is empty -- connect a filename or type one.")
+
+        root = folder_paths.get_input_directory() if source == "inputs" else folder_paths.get_output_directory()
+        clean_subfolder = subfolder.strip().strip("/\\")
+        target_dir = os.path.normpath(os.path.join(root, clean_subfolder)) if clean_subfolder else root
+        os.makedirs(target_dir, exist_ok=True)
+
+        metadata = None
+        if embed_workflow and not args.disable_metadata:
+            metadata = PngInfo()
+            if prompt is not None:
+                metadata.add_text("prompt", json.dumps(prompt))
+            if isinstance(extra_pnginfo, dict):
+                for k, v in extra_pnginfo.items():
+                    metadata.add_text(k, json.dumps(v))
+
+        batch_size = images.shape[0]
+        saved = []
+        for i, image in enumerate(images):
+            arr = 255. * image.cpu().numpy()
+            img = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
+            name = base if batch_size == 1 else f"{base}_{i}"
+            file = f"{name}.png"
+            img.save(os.path.join(target_dir, file), pnginfo=metadata, compress_level=4)
+            saved.append(file)
+
+        ui_type = "input" if source == "inputs" else "output"
+        ui_results = [{"filename": f, "subfolder": clean_subfolder, "type": ui_type} for f in saved]
+        return {
+            "ui": {"images": ui_results},
+            "result": ("\n".join(saved),),
+        }
+
+########################################################################################################################
+
 class ExtractWorkflowFromImageMXD:
     TITLE = "Extract Workflow From Image MXD"
     CATEGORY = "MXD/Image"
@@ -831,6 +919,7 @@ NODE_CLASS_MAPPINGS = {
     "LoadVideoFromFolderMXD": LoadVideoFromFolderMXD,
     "LoadImageWithPromptsMXD": LoadImageWithPromptsMXD,
     "Save Image MXD": SaveImage_MXD,
+    "SaveImageDatasetMXD": SaveImageDatasetMXD,
     "Extract Workflow From Image MXD": ExtractWorkflowFromImageMXD,
 }
 
@@ -841,5 +930,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadVideoFromFolderMXD": "Load Video (From Folder) MXD",
     "LoadImageWithPromptsMXD": "Load Image MXD",
     "Save Image MXD": "Save Image MXD",
+    "SaveImageDatasetMXD": "Save Image (Dataset) MXD",
     "Extract Workflow From Image MXD": "Extract Workflow From Image MXD",
 }

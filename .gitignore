@@ -35,6 +35,13 @@ logs/
 testing/
 userdata/
 local_notes/
+TODO.txt
+
+# AI-agent instructions — local working notes, not part of the published pack.
+# Keep these files on disk; they just never get pushed.
+CLAUDE.md
+AGENTS.md
+.claude/
 
 # Personal model storage root config (see model_storage_config.json.example)
 model_storage_config.json

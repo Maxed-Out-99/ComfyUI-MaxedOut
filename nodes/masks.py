@@ -8,6 +8,7 @@ Registered nodes:
   SmartCropByMaskMXD            Smart Crop by Mask MXD
   BboxDetectorCombinedBatchMXD  BBOX Detector Combined Batch MXD
   ImageAndMaskPreviewMXD        Image and Mask Preview MXD
+  SkipIfMaskEmptyMXD            Skip If Mask Empty MXD
 """
 from __future__ import annotations
 import torch, comfy, comfy.utils, folder_paths, random
@@ -15,6 +16,7 @@ import torch.nn.functional as F
 import numpy as np
 from PIL import Image, ImageColor
 from nodes import SaveImage
+from comfy_execution.graph_utils import ExecutionBlocker
 
 ########################################################################################################################
 
@@ -553,6 +555,29 @@ class ImageAndMaskPreviewMXD(SaveImage):
 
 ########################################################################################################################
 
+class SkipIfMaskEmptyMXD:
+    DESCRIPTION = """Blocks downstream nodes (e.g. a KSampler branch) when the input mask has no detected region."""
+    TITLE = "Skip If Mask Empty MXD"
+    CATEGORY = "MXD/Detector"
+    RETURN_TYPES = ("MASK",)
+    RETURN_NAMES = ("mask",)
+    FUNCTION = "gate"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "mask": ("MASK",),
+            },
+        }
+
+    def gate(self, mask):
+        if torch.is_tensor(mask) and torch.any(mask > 0):
+            return (mask,)
+        return (ExecutionBlocker(None),)
+
+########################################################################################################################
+
 NODE_CLASS_MAPPINGS = {
     "LatentHalfMasks": LatentHalfMasks,
     "Get Latent Size": GetLatentSizeMXD,
@@ -561,6 +586,7 @@ NODE_CLASS_MAPPINGS = {
     "SmartCropByMaskMXD": SmartCropByMaskMXD,
     "BboxDetectorCombinedBatchMXD": BboxDetectorCombinedBatchMXD,
     "ImageAndMaskPreviewMXD": ImageAndMaskPreviewMXD,
+    "SkipIfMaskEmptyMXD": SkipIfMaskEmptyMXD,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -571,4 +597,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SmartCropByMaskMXD": "Smart Crop by Mask MXD",
     "BboxDetectorCombinedBatchMXD": "BBOX Detector Combined Batch MXD",
     "ImageAndMaskPreviewMXD": "Image and Mask Preview MXD",
+    "SkipIfMaskEmptyMXD": "Skip If Mask Empty MXD",
 }

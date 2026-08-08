@@ -1,3 +1,0 @@
-1. LTX2 Lora Loader MXD. Remove the "blocks" input and the "rank and "loaded_keys_info". also i feel like we need a mora elegant way to do this cuz it looks weird. 
-
-2. im seeing Load Latent Batch MXD twice when i search for it in comfyui

@@ -1,14 +1,15 @@
 """Empty-latent generators with model-correct resolution presets.
 
 Registered nodes:
-  Flux Empty Latent Image     Flux Empty Latent Image MXD
-  Flux 2 Empty Latent Image   Flux 2 Empty Latent Image MXD
-  Flux Resolution Selector    Flux Resolution Selector MXD
-  Sdxl Empty Latent Image     SDXL Empty Latent Image MXD
-  ZImageTurboEmptyLatentImage ZIT Empty Latent Image MXD
+  Flux Empty Latent Image             Flux Empty Latent Image MXD
+  Flux 2 Empty Latent Image           Flux 2 Empty Latent Image MXD
+  Flux Resolution Selector            Flux Resolution Selector MXD
+  Sdxl Empty Latent Image             SDXL Empty Latent Image MXD
+  ZImageTurboEmptyLatentImage         ZIT Empty Latent Image MXD
+  Resolution Selector Empty Latent    Empty Latent Image MXD
 """
 from __future__ import annotations
-import torch, comfy, comfy.model_management
+import math, torch, comfy, comfy.model_management
 
 ########################################################################################################################
 # Flux Empty Latent Image (SD3-compatible)
@@ -296,6 +297,89 @@ class ZImageTurboEmptyLatentImage:
         return ({"samples": latent},)
 
 ########################################################################################################################
+# Resolution Selector Empty Latent Image (general purpose, not model-specific)
+# Folds core's "Resolution Selector" (aspect ratio + megapixels + multiple-of)
+# directly into an empty latent generator instead of needing two nodes.
+class ResolutionSelectorEmptyLatentImage:
+    DESCRIPTION = """Pick an aspect ratio and megapixel target and create an empty latent batch. Standard 4-channel/8x latent — not tied to any specific model."""
+    TITLE = "Empty Latent Image"
+    CATEGORY = "MXD/Latent"
+
+    # (width_ratio, height_ratio) — vertical toggle swaps these, so only one
+    # orientation is listed per ratio (mirrors core's ResolutionSelector set).
+    ASPECT_RATIOS = {
+        "Square (1:1)": (1, 1),
+        "Standard (4:3)": (4, 3),
+        "Landscape (3:2)": (3, 2),
+        "Widescreen (16:9)": (16, 9),
+        "Ultrawide (21:9)": (21, 9),
+    }
+
+    def __init__(self):
+        self.device = comfy.model_management.intermediate_device()
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict:
+        return {
+            "required": {
+                "aspect_ratio": (
+                    list(cls.ASPECT_RATIOS.keys()),
+                    {"default": "Square (1:1)"}
+                ),
+                "megapixels": (
+                    "FLOAT",
+                    {
+                        "default": 1.0,
+                        "min": 0.1,
+                        "max": 16.0,
+                        "step": 0.1,
+                        "tooltip": "Target total megapixels. 1.0 MP ≈ 1024x1024 for square."
+                    }
+                ),
+                "vertical": ("BOOLEAN", {"default": False}),
+                "batch_size": (
+                    "INT",
+                    {
+                        "default": 1,
+                        "min": 1,
+                        "max": 4096,
+                        "tooltip": "The number of latent images in the batch."
+                    }
+                ),
+            },
+            "optional": {
+                "multiple": (
+                    "INT",
+                    {
+                        "default": 8,
+                        "min": 8,
+                        "max": 128,
+                        "step": 8,
+                        "tooltip": "Round the calculated resolution to the nearest multiple of this value. Keep a multiple of 8 for clean latent dimensions.",
+                        "advanced": True
+                    }
+                ),
+            }
+        }
+
+    RETURN_TYPES = ("LATENT",)
+    OUTPUT_TOOLTIPS = ("The empty latent image batch.",)
+    FUNCTION = "generate"
+
+    def generate(self, aspect_ratio, megapixels, vertical, batch_size=1, multiple=8) -> tuple:
+        w_ratio, h_ratio = self.ASPECT_RATIOS[aspect_ratio]
+        total_pixels = megapixels * 1024 * 1024
+        scale = math.sqrt(total_pixels / (w_ratio * h_ratio))
+        width = round(w_ratio * scale / multiple) * multiple
+        height = round(h_ratio * scale / multiple) * multiple
+
+        if vertical:
+            width, height = height, width
+
+        latent = torch.zeros([batch_size, 4, height // 8, width // 8], device=self.device)
+        return ({"samples": latent},)
+
+########################################################################################################################
 
 NODE_CLASS_MAPPINGS = {
     "Flux Empty Latent Image": FluxEmptyLatentImage,
@@ -303,6 +387,7 @@ NODE_CLASS_MAPPINGS = {
     "Flux Resolution Selector": FluxResolutionSelector,
     "Sdxl Empty Latent Image": SdxlEmptyLatentImage,
     "ZImageTurboEmptyLatentImage": ZImageTurboEmptyLatentImage,
+    "Resolution Selector Empty Latent": ResolutionSelectorEmptyLatentImage,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -311,4 +396,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Flux Resolution Selector": "Flux Resolution Selector MXD",
     "Sdxl Empty Latent Image": "SDXL Empty Latent Image MXD",
     "ZImageTurboEmptyLatentImage": "ZIT Empty Latent Image MXD",
+    "Resolution Selector Empty Latent": "Empty Latent Image MXD",
 }

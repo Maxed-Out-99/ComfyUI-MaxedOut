@@ -1,5 +1,5 @@
 {
-  "node_count": 68,
+  "node_count": 67,
   "nodes": {
     "BboxDetectorCombinedBatchMXD": {
       "category": "MXD/Detector",
@@ -76,7 +76,16 @@
                 "hunyuan_image",
                 "flux2",
                 "ovis",
-                "longcat_image"
+                "longcat_image",
+                "cogvideox",
+                "lens",
+                "pixeldit",
+                "ideogram4",
+                "boogu",
+                "krea2",
+                "joyimage",
+                "mage",
+                "minimax"
               ]
             }
           }
@@ -86,116 +95,6 @@
       "return_names": null,
       "return_types": [
         "CLIP"
-      ]
-    },
-    "CombineForegroundsBackgroundFFGOMXD": {
-      "category": "MXD/Image",
-      "class": "CombineForegroundsBackgroundFFGOMXD",
-      "display_name": "Combine Fore + Back FFGO MXD",
-      "function": "combine",
-      "input_types": {
-        "optional": {
-          "foreground_2": {
-            "type": "IMAGE"
-          },
-          "foreground_3": {
-            "type": "IMAGE"
-          },
-          "foreground_4": {
-            "type": "IMAGE"
-          },
-          "foreground_5": {
-            "type": "IMAGE"
-          },
-          "foreground_6": {
-            "type": "IMAGE"
-          }
-        },
-        "required": {
-          "background": {
-            "type": "IMAGE"
-          },
-          "canvas_height": {
-            "config": {
-              "default": 720,
-              "max": 8192,
-              "min": 64,
-              "step": 8
-            },
-            "type": "INT"
-          },
-          "canvas_width": {
-            "config": {
-              "default": 1280,
-              "max": 8192,
-              "min": 64,
-              "step": 8
-            },
-            "type": "INT"
-          },
-          "foreground_1": {
-            "type": "IMAGE"
-          }
-        }
-      },
-      "output_node": false,
-      "return_names": [
-        "image"
-      ],
-      "return_types": [
-        "IMAGE"
-      ]
-    },
-    "CombineTwoImagesFFGOMXD": {
-      "category": "MXD/Image",
-      "class": "CombineTwoImagesFFGOMXD",
-      "display_name": "Combine 2 Images FFGO MXD",
-      "function": "combine",
-      "input_types": {
-        "required": {
-          "canvas_height": {
-            "config": {
-              "default": 512,
-              "max": 8192,
-              "min": 64,
-              "step": 8
-            },
-            "type": "INT"
-          },
-          "canvas_width": {
-            "config": {
-              "default": 1024,
-              "max": 8192,
-              "min": 64,
-              "step": 8
-            },
-            "type": "INT"
-          },
-          "direction": {
-            "config": {
-              "default": "horizontal"
-            },
-            "type": {
-              "combo": [
-                "horizontal",
-                "vertical"
-              ]
-            }
-          },
-          "image_1": {
-            "type": "IMAGE"
-          },
-          "image_2": {
-            "type": "IMAGE"
-          }
-        }
-      },
-      "output_node": false,
-      "return_names": [
-        "image"
-      ],
-      "return_types": [
-        "IMAGE"
       ]
     },
     "CombineVideos_MXD": {
@@ -690,7 +589,7 @@
     "Image Comparer + Save MXD": {
       "category": "MXD",
       "class": "MxdImageComparerSave",
-      "display_name": "Image Comparer + Save MXD",
+      "display_name": "Image Comparer MXD",
       "function": "compare_and_save",
       "input_types": {
         "hidden": {
@@ -726,12 +625,11 @@
           "mode": {
             "config": {
               "default": "Save (New Img) + Preview",
-              "tooltip": "Choose whether to save the new image, preview both, or preview only."
+              "tooltip": "Choose whether to save the new image or preview only."
             },
             "type": {
               "combo": [
                 "Save (New Img) + Preview",
-                "Save (New Img) Only",
                 "Preview Only"
               ]
             }
@@ -739,8 +637,12 @@
         }
       },
       "output_node": true,
-      "return_names": null,
-      "return_types": []
+      "return_names": [
+        "images"
+      ],
+      "return_types": [
+        "IMAGE"
+      ]
     },
     "Image Scale To Total Pixels (SDXL Safe)": {
       "category": "MXD/Upscaling",
@@ -840,34 +742,84 @@
         "IMAGE"
       ]
     },
-    "LTX2 Lora Loader MXD": {
-      "category": "mxd",
-      "class": "MxdLtx2PowerLoraLoader",
-      "display_name": "LTX2 Lora Loader MXD",
-      "function": "load_loras",
+    "KreaLayerVarianceMXD": {
+      "category": "MXD/conditioning",
+      "class": "KreaLayerVarianceMXD",
+      "display_name": "Krea Layer Variance",
+      "function": "apply_variance",
       "input_types": {
-        "hidden": {},
-        "optional": {
-          "blocks": {
-            "type": "SELECTEDDITBLOCKS"
-          }
-        },
         "required": {
-          "model": {
-            "type": "MODEL"
+          "conditioning": {
+            "type": "CONDITIONING"
+          },
+          "seed": {
+            "config": {
+              "control_after_generate": true,
+              "default": 0,
+              "max": 18446744073709551615,
+              "min": 0,
+              "tooltip": "Controls only the layer-aware conditioning variation. Set this widget to randomize or increment between generations."
+            },
+            "type": "INT"
+          },
+          "strength": {
+            "config": {
+              "default": 6.0,
+              "max": 45.0,
+              "min": 0.0,
+              "step": 0.5,
+              "tooltip": "Rotation in degrees within each Krea text layer. Start at 6; raise gradually for more variation."
+            },
+            "type": "FLOAT"
           }
         }
       },
       "output_node": false,
       "return_names": [
-        "MODEL",
-        "rank",
-        "loaded_keys_info"
+        "conditioning"
       ],
       "return_types": [
-        "MODEL",
-        "STRING",
-        "STRING"
+        "CONDITIONING"
+      ]
+    },
+    "KreaSeedVarianceMXD": {
+      "category": "MXD/conditioning",
+      "class": "KreaSeedVarianceMXD",
+      "display_name": "Krea Seed Variance",
+      "function": "apply_variance",
+      "input_types": {
+        "required": {
+          "amount": {
+            "config": {
+              "default": 20.0,
+              "max": 50.0,
+              "min": 0.0,
+              "step": 0.5,
+              "tooltip": "20 matches the RBG Balanced preset for Krea 2. Higher values increase both the noise and the fraction changed."
+            },
+            "type": "FLOAT"
+          },
+          "conditioning": {
+            "type": "CONDITIONING"
+          },
+          "seed": {
+            "config": {
+              "control_after_generate": true,
+              "default": 0,
+              "max": 18446744073709551615,
+              "min": 0,
+              "tooltip": "Controls only the conditioning variation. Set this widget to randomize or increment between generations."
+            },
+            "type": "INT"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "conditioning"
+      ],
+      "return_types": [
+        "CONDITIONING"
       ]
     },
     "LTXKSampler2_MXD": {
@@ -896,13 +848,6 @@
           },
           "latent_image": {
             "type": "LATENT"
-          },
-          "ltx_preview": {
-            "config": {
-              "default": true,
-              "tooltip": "Show LTX video previews during sampling. Downloads the taeltx VAE to your vae model folder if it is missing."
-            },
-            "type": "BOOLEAN"
           },
           "mode": {
             "config": {
@@ -982,13 +927,6 @@
           "latent_image": {
             "type": "LATENT"
           },
-          "ltx_preview": {
-            "config": {
-              "default": true,
-              "tooltip": "Show LTX video previews during sampling. Downloads the taeltx VAE to your vae model folder if it is missing."
-            },
-            "type": "BOOLEAN"
-          },
           "mode": {
             "config": {
               "default": "Distilled 8 Step"
@@ -1038,33 +976,6 @@
       ],
       "return_types": [
         "LATENT"
-      ]
-    },
-    "LTXPreview_MXD": {
-      "category": "MXD/Sampling",
-      "class": "LTXPreviewMXD",
-      "display_name": "LTX Preview MXD",
-      "function": "apply",
-      "input_types": {
-        "required": {
-          "enabled": {
-            "config": {
-              "default": true,
-              "tooltip": "Turn taeltx previews on/off without unwiring the node."
-            },
-            "type": "BOOLEAN"
-          },
-          "model": {
-            "type": "MODEL"
-          }
-        }
-      },
-      "output_node": false,
-      "return_names": [
-        "model"
-      ],
-      "return_types": [
-        "MODEL"
       ]
     },
     "LTXVideoEmptyLatent_MXD": {
@@ -1682,126 +1593,6 @@
         "CLIP"
       ]
     },
-    "MXDCharacterCreate": {
-      "category": "MXD/Character",
-      "class": "MXDCharacterCreate",
-      "display_name": "Character Create MXD",
-      "function": "run",
-      "input_types": {
-        "required": {
-          "character_name": {
-            "config": {
-              "default": "",
-              "multiline": false
-            },
-            "type": "STRING"
-          },
-          "character_prompt": {
-            "config": {
-              "default": "",
-              "multiline": true
-            },
-            "type": "STRING"
-          }
-        }
-      },
-      "output_node": true,
-      "return_names": [
-        "status"
-      ],
-      "return_types": [
-        "STRING"
-      ]
-    },
-    "MXDCharacterEditDelete": {
-      "category": "MXD/Character",
-      "class": "MXDCharacterEditDelete",
-      "display_name": "Character Edit/Delete MXD",
-      "function": "run",
-      "input_types": {
-        "required": {
-          "action": {
-            "config": {
-              "default": "load_character"
-            },
-            "type": {
-              "combo": [
-                "load_character",
-                "edit_character",
-                "delete_character"
-              ]
-            }
-          },
-          "character_prompt": {
-            "config": {
-              "default": "",
-              "multiline": true,
-              "tooltip": "Used when action=edit_character."
-            },
-            "type": "STRING"
-          },
-          "selected_character": {
-            "config": {
-              "default": "<dynamic-combo-default>",
-              "tooltip": "Choose a saved character. Use the refresh button to update this list."
-            },
-            "type": {
-              "combo": "nonempty",
-              "dynamic": true
-            }
-          }
-        }
-      },
-      "output_node": true,
-      "return_names": [
-        "character_prompt"
-      ],
-      "return_types": [
-        "STRING"
-      ]
-    },
-    "MXDCharacterPromptEncode": {
-      "category": "MXD/Character",
-      "class": "MXDCharacterPromptEncode",
-      "display_name": "Character Prompt Encode MXD",
-      "function": "encode",
-      "input_types": {
-        "required": {
-          "character_handling": {
-            "config": {
-              "default": "separate_with_break"
-            },
-            "type": {
-              "combo": [
-                "separate_with_break",
-                "combine_conditioning",
-                "single_prompt"
-              ]
-            }
-          },
-          "clip": {
-            "type": "CLIP"
-          },
-          "prompt": {
-            "config": {
-              "default": "",
-              "dynamicPrompts": true,
-              "multiline": true
-            },
-            "type": "STRING"
-          }
-        }
-      },
-      "output_node": false,
-      "return_names": [
-        "conditioning",
-        "prompt_with_character_text"
-      ],
-      "return_types": [
-        "CONDITIONING",
-        "STRING"
-      ]
-    },
     "PadImageForOutpaintingMXD": {
       "category": "image/transform",
       "class": "PadImageForOutpaintingMXD",
@@ -2024,7 +1815,16 @@
                 "hunyuan_image",
                 "flux2",
                 "ovis",
-                "longcat_image"
+                "longcat_image",
+                "cogvideox",
+                "lens",
+                "pixeldit",
+                "ideogram4",
+                "boogu",
+                "krea2",
+                "joyimage",
+                "mage",
+                "minimax"
               ]
             }
           }
@@ -2140,6 +1940,135 @@
         "LATENT"
       ]
     },
+    "Resolution Selector Empty Latent": {
+      "category": "MXD/Latent",
+      "class": "ResolutionSelectorEmptyLatentImage",
+      "display_name": "Empty Latent Image MXD",
+      "function": "generate",
+      "input_types": {
+        "optional": {
+          "multiple": {
+            "config": {
+              "advanced": true,
+              "default": 8,
+              "max": 128,
+              "min": 8,
+              "step": 8,
+              "tooltip": "Round the calculated resolution to the nearest multiple of this value. Keep a multiple of 8 for clean latent dimensions."
+            },
+            "type": "INT"
+          }
+        },
+        "required": {
+          "aspect_ratio": {
+            "config": {
+              "default": "Square (1:1)"
+            },
+            "type": {
+              "combo": [
+                "Square (1:1)",
+                "Standard (4:3)",
+                "Landscape (3:2)",
+                "Widescreen (16:9)",
+                "Ultrawide (21:9)"
+              ]
+            }
+          },
+          "batch_size": {
+            "config": {
+              "default": 1,
+              "max": 4096,
+              "min": 1,
+              "tooltip": "The number of latent images in the batch."
+            },
+            "type": "INT"
+          },
+          "megapixels": {
+            "config": {
+              "default": 1.0,
+              "max": 16.0,
+              "min": 0.1,
+              "step": 0.1,
+              "tooltip": "Target total megapixels. 1.0 MP ≈ 1024x1024 for square."
+            },
+            "type": "FLOAT"
+          },
+          "vertical": {
+            "config": {
+              "default": false
+            },
+            "type": "BOOLEAN"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": null,
+      "return_types": [
+        "LATENT"
+      ]
+    },
+    "ResolutionSelectorMXD": {
+      "category": "MXD/Latent",
+      "class": "ResolutionSelectorMXD",
+      "display_name": "Resolution Selector MXD",
+      "function": "calculate",
+      "input_types": {
+        "optional": {
+          "multiple": {
+            "config": {
+              "advanced": true,
+              "default": 8,
+              "max": 128,
+              "min": 8,
+              "step": 4,
+              "tooltip": "Round the calculated resolution to the nearest multiple of this value."
+            },
+            "type": "INT"
+          }
+        },
+        "required": {
+          "aspect_ratio": {
+            "config": {
+              "default": "Square (1:1)"
+            },
+            "type": {
+              "combo": [
+                "Square (1:1)",
+                "Standard (4:3)",
+                "Landscape (3:2)",
+                "Widescreen (16:9)",
+                "Ultrawide (21:9)"
+              ]
+            }
+          },
+          "megapixels": {
+            "config": {
+              "default": 1.0,
+              "max": 16.0,
+              "min": 0.1,
+              "step": 0.1,
+              "tooltip": "Target total megapixels. 1.0 MP ≈ 1024x1024 for square."
+            },
+            "type": "FLOAT"
+          },
+          "vertical": {
+            "config": {
+              "default": false
+            },
+            "type": "BOOLEAN"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "width",
+        "height"
+      ],
+      "return_types": [
+        "INT",
+        "INT"
+      ]
+    },
     "SDXLResolutionMatcher": {
       "category": "MXD/Latent",
       "class": "SDXLResolutionMatcher",
@@ -2253,6 +2182,72 @@
       "output_node": true,
       "return_names": null,
       "return_types": []
+    },
+    "SaveImageDatasetMXD": {
+      "category": "MXD/Image",
+      "class": "SaveImageDatasetMXD",
+      "display_name": "Save Image (Dataset) MXD",
+      "function": "save",
+      "input_types": {
+        "hidden": {
+          "extra_pnginfo": {
+            "type": "EXTRA_PNGINFO"
+          },
+          "prompt": {
+            "type": "PROMPT"
+          }
+        },
+        "optional": {
+          "embed_workflow": {
+            "config": {
+              "default": false,
+              "tooltip": "Embed workflow metadata in the saved PNG."
+            },
+            "type": "BOOLEAN"
+          }
+        },
+        "required": {
+          "filename": {
+            "config": {
+              "default": "",
+              "tooltip": "Exact base filename to save as. Any extension is stripped and replaced with .png. Connect the 'filename' output of Load Image (From Folder) MXD to keep dataset pairing with a sidecar .txt."
+            },
+            "type": "STRING"
+          },
+          "images": {
+            "config": {
+              "tooltip": "Images to save."
+            },
+            "type": "IMAGE"
+          },
+          "source": {
+            "config": {
+              "default": "inputs",
+              "tooltip": "Folder root to save into."
+            },
+            "type": {
+              "combo": [
+                "inputs",
+                "outputs"
+              ]
+            }
+          },
+          "subfolder": {
+            "config": {
+              "default": "",
+              "tooltip": "Optional subfolder under the source root, e.g. 'flux_processed'. Use a different subfolder than your source images so you don't overwrite the originals."
+            },
+            "type": "STRING"
+          }
+        }
+      },
+      "output_node": true,
+      "return_names": [
+        "filename"
+      ],
+      "return_types": [
+        "STRING"
+      ]
     },
     "SaveLatent_I2V_MXD": {
       "category": "MXD/Latents",
@@ -2434,6 +2429,26 @@
         "LATENT"
       ]
     },
+    "SkipIfMaskEmptyMXD": {
+      "category": "MXD/Detector",
+      "class": "SkipIfMaskEmptyMXD",
+      "display_name": "Skip If Mask Empty MXD",
+      "function": "gate",
+      "input_types": {
+        "required": {
+          "mask": {
+            "type": "MASK"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "mask"
+      ],
+      "return_types": [
+        "MASK"
+      ]
+    },
     "SmartCropByMaskMXD": {
       "category": "image/transform",
       "class": "SmartCropByMaskMXD",
@@ -2503,7 +2518,16 @@
                 "hunyuan_image",
                 "flux2",
                 "ovis",
-                "longcat_image"
+                "longcat_image",
+                "cogvideox",
+                "lens",
+                "pixeldit",
+                "ideogram4",
+                "boogu",
+                "krea2",
+                "joyimage",
+                "mage",
+                "minimax"
               ]
             }
           }

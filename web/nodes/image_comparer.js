@@ -559,16 +559,19 @@ class MxdImageComparer extends MxdBaseServerNode {
         // super.onMouseEnter?.(event);
         this.setIsPointerDown(!!app.canvas.pointer_is_down);
         this.isPointerOver = true;
+        this.setDirtyCanvas(true, false);
     }
     onMouseLeave(event) {
         // super.onMouseLeave?.(event);
         this.setIsPointerDown(false);
         this.isPointerOver = false;
+        this.setDirtyCanvas(true, false);
     }
     onMouseMove(event, pos, canvas) {
         // super.onMouseMove?.(event, pos, canvas);
         this.pointerOverPos = [...pos];
         this.imageIndex = this.pointerOverPos[0] > this.size[0] / 2 ? 1 : 0;
+        this.setDirtyCanvas(true, false);
     }
     getHelp() {
         return `
@@ -652,6 +655,13 @@ app.registerExtension({
         ]) {
             nodeType.prototype[name] = MxdImageComparer.prototype[name];
         }
+
+        // Core patches every image-output node's onDrawBackground to draw
+        // node.imgs itself (with its own pagination indicator). That fights
+        // with our custom widget drawing the same images, producing a
+        // double-rendered/overlaid look. We render everything ourselves, so
+        // suppress the core background drawer for this node type.
+        nodeType.prototype.onDrawBackground = function () {};
 
         nodeType["@comparer_mode"] = { type: "combo", values: ["Slide", "Click"] };
     },

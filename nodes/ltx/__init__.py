@@ -1,4 +1,8 @@
-"""LTX Video node package: latent sizing, two-stage samplers, taeltx live preview."""
+"""LTX Video node package: latent sizing and the two-stage distilled samplers.
+
+Live previews during sampling (including the taeltx decoder LTX 2.3 needs, since
+core ships none) moved out to the standalone Live-Preview-MXD pack.
+"""
 import importlib
 
 NODE_CLASS_MAPPINGS = {}
@@ -7,7 +11,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {}
 for _name in (
     "latents",
     "samplers",
-    "preview",
 ):
     try:
         _mod = importlib.import_module(f".{_name}", __name__)

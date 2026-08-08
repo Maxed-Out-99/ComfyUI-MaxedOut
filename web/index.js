@@ -1,4 +1,5 @@
 import './lib/mxd_runtime.js';
+import './lib/mxd_nodes2.js';
 import './lib/mxd_shared_utils.js';
 import './lib/mxd_utils_dom.js';
 import './lib/mxd_utils_canvas.js';
@@ -17,19 +18,15 @@ import './lib/mxd_smart_search.js';
 import './nodes/better_combos.js';
 import './nodes/image_comparer.js';
 import './vendor/zip_loader/zip_loader.js';
+import './nodes/power_lora_dom.js';
 import './nodes/power_lora_base.js';
 import './nodes/power_lora_loader.js';
-import './nodes/ltx2_power_lora_loader.js';
-import './nodes/character_prompts.js';
 import './nodes/ltx_sampler.js';
 import './nodes/wan22_video_prep.js';
 import './nodes/load_image_batch.js';
 import './nodes/load_video_batch.js';
 import './nodes/load_single_file.js';
 import './nodes/run_folder.js';
-import './nodes/video_preview.js';
-import './nodes/live_preview_panel.js';
-import './nodes/combine_materials_ffgo.js';
 import './nodes/model_storage_settings.js';
 import './nodes/checkpoint_loader.js';
-
+import './nodes/prompt_spellcheck.js';
