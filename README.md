@@ -70,6 +70,7 @@ only what you want. Nothing below is required.
 | [Live-Preview-MXD](https://github.com/Maxed-Out-99/Live-Preview-MXD) | Watch video generations animate while they render, in a dockable panel. Also adds LTX 2.3 previews, which core can't do at all. |
 | [Prompt-Library-MXD](https://github.com/Maxed-Out-99/Prompt-Library-MXD) | Save named prompt snippets by category and pull them in by name, or let a wildcard pick one at random. |
 | [Spell-Check-MXD](https://github.com/Maxed-Out-99/Spell-Check-MXD) | The prompt spellchecker on its own, if you don't want the rest of this pack. Safe to install alongside — it won't double up. |
+| [Smart-Model-Loaders-MXD](https://github.com/Maxed-Out-99/Smart-Model-Loaders-MXD) | Loader nodes that accept safetensors or GGUF in the same slot. Only needed if you actually use GGUF quants. |
 
 ## Free Workflows
 
@@ -96,7 +97,7 @@ If you star this repo, definitely consider starring theirs too.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Vendored dependencies keep their own licenses:
-`smart_loaders_mxd/` (GGUF loading, from
-[city96/ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF)) and
-`web/vendor/` each carry their license files alongside the code.
+MIT — see [LICENSE](LICENSE). Vendored code under `web/vendor/` keeps its own
+licenses, carried alongside it in that folder.
+
+This pack has no pip dependencies — everything it needs ships with ComfyUI.

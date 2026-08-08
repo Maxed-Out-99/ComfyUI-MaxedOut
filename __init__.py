@@ -22,7 +22,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {}
 for _name in (
     "nodes",
     "loraloader_mxd",
-    "smart_loaders_mxd",
     "system.model_paths",
 ):
     _mod = _safe_import(_name)
