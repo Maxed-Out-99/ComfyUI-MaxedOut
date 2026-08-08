@@ -2,7 +2,7 @@
 // strengths (the "Show Strengths" node property). Shared machinery lives in
 // power_lora_base.js; this file only adds the dual-strength row behavior.
 import { app } from "../../../scripts/app.js";
-import { nodeDrawWidth } from "../lib/mxd_nodes2.js";
+import { nodeDrawWidth, redrawWidget } from "../lib/mxd_nodes2.js";
 import { drawNumberWidgetPart, isLowQuality } from "../lib/mxd_utils_canvas.js";
 import {
   MxdPowerLoraLoaderBase,
@@ -19,8 +19,6 @@ class MxdPowerLoraLoader extends MxdPowerLoraLoaderBase {
   static title = NODE_TYPE;
   static type = NODE_TYPE;
   static comfyClass = NODE_TYPE;
-  // This node's "Show Strengths" property can split model/clip strengths.
-  static loraRowSupportsDual = true;
 
   static [PROP_LABEL_SHOW_STRENGTHS_STATIC] = {
     type: "combo",
@@ -192,6 +190,7 @@ class PowerLoraLoaderWidget extends PowerLoraBaseWidget {
       let prop = isTwo ? "strengthTwo" : "strength";
       this.haveMouseMovedStrength = true;
       this.value[prop] = (this.value[prop] ?? 1) + event.deltaX * 0.05;
+      redrawWidget(this);
     }
   }
 
@@ -207,7 +206,15 @@ class PowerLoraLoaderWidget extends PowerLoraBaseWidget {
     if (this.haveMouseMovedStrength) return;
     let prop = isTwo ? "strengthTwo" : "strength";
     const canvas = app.canvas;
-    canvas.prompt("Value", this.value[prop], (v) => (this.value[prop] = Number(v)), event);
+    canvas.prompt(
+      "Value",
+      this.value[prop],
+      (v) => {
+        this.value[prop] = Number(v);
+        redrawWidget(this);
+      },
+      event,
+    );
   }
 
   stepStrength(direction, isTwo = false) {
@@ -215,6 +222,7 @@ class PowerLoraLoaderWidget extends PowerLoraBaseWidget {
     let prop = isTwo ? "strengthTwo" : "strength";
     let strength = (this.value[prop] ?? 1) + step * direction;
     this.value[prop] = Math.round(strength * 100) / 100;
+    redrawWidget(this);
   }
 }
 

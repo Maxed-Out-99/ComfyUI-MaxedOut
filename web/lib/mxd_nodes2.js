@@ -27,6 +27,8 @@
 // Deliberately, with Nodes 2.0 OFF it returns `node.size[0]` — identical to the
 // pre-Nodes-2.0 behavior — so turning the setting off is a full revert and
 // classic rendering can never be affected by this module.
+//
+// Repainting: see redrawWidgets() below.
 import { app } from "../../../scripts/app.js";
 
 const SETTING_ID = "Comfy.VueNodes.Enabled";
@@ -63,4 +65,30 @@ export function nodeDrawWidth(node, w) {
     return w;
   }
   return node?.size?.[0] ?? 0;
+}
+
+// Repaint a canvas-drawn custom widget after code changed its value directly.
+//
+// Classic mode repaints the whole node canvas, so setDirtyCanvas() is enough.
+// Under Nodes 2.0 each legacy widget lives in its OWN <canvas> inside core's
+// WidgetLegacy component, and the graph canvas being dirty says nothing about
+// that private canvas. Core's fix is `widget.triggerDraw`, which it documents as
+// "compatibility method for widgets implementing the draw method when displayed
+// in non-canvas renderers ... set by the current renderer implementation".
+// Core only wires it into `widget.callback`; our widgets mutate `this.value`
+// directly, so we call it ourselves.
+//
+// It is absent on classic frontends and on older ones that predate it, hence
+// the optional call — this is a no-op there, which is exactly right.
+export function redrawWidget(widget) {
+  widget?.triggerDraw?.();
+}
+
+// Repaint every widget on a node. Used when one interaction changes several
+// rows at once (toggle-all, reordering, a row being removed).
+export function redrawWidgets(node) {
+  for (const widget of node?.widgets || []) {
+    widget.triggerDraw?.();
+  }
+  node?.setDirtyCanvas?.(true, true);
 }

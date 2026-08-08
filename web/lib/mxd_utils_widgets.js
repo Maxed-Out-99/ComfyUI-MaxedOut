@@ -1,5 +1,6 @@
 import { app } from "../../../scripts/app.js";
 import { drawNodeWidget, drawWidgetButton, fitString, isLowQuality } from "./mxd_utils_canvas.js";
+import { isNodes2Enabled, nodeDrawWidth } from "./mxd_nodes2.js";
 export function drawLabelAndValue(ctx, label, value, width, posY, height, options) {
     var _a;
     const outerMargin = 15;
@@ -46,6 +47,12 @@ export class MxdBaseWidget {
     mouse(event, pos, node) {
         var _a, _b, _c;
         const canvas = app.canvas;
+        // Any pointer interaction can change what this widget looks like — a
+        // pressed button, a flipped toggle, a new number. Under Nodes 2.0 the
+        // graph canvas going dirty does not repaint this widget's own canvas,
+        // so ask core's renderer for a redraw once the handlers below have run.
+        // No-op in classic mode and on frontends without `triggerDraw`.
+        const redraw = () => this.triggerDraw?.();
         if (event.type == "pointerdown") {
             this.mouseDowned = [...pos];
             this.isMouseDownedAndOver = true;
@@ -67,7 +74,9 @@ export class MxdBaseWidget {
                     part.wasMouseClickedAndIsOver = true;
                 }
             }
-            return (_a = this.onMouseDown(event, pos, node)) !== null && _a !== void 0 ? _a : anyHandled;
+            const downResult = (_a = this.onMouseDown(event, pos, node)) !== null && _a !== void 0 ? _a : anyHandled;
+            redraw();
+            return downResult;
         }
         if (event.type == "pointerup") {
             if (!this.mouseDowned)
@@ -94,15 +103,24 @@ export class MxdBaseWidget {
                 const thisHandled = this.onMouseClick(event, pos, node);
                 anyHandled = anyHandled || thisHandled == true;
             }
-            return (_b = this.onMouseUp(event, pos, node)) !== null && _b !== void 0 ? _b : anyHandled;
+            const upResult = (_b = this.onMouseUp(event, pos, node)) !== null && _b !== void 0 ? _b : anyHandled;
+            redraw();
+            return upResult;
         }
         if (event.type == "pointermove") {
             this.isMouseDownedAndOver = !!this.mouseDowned;
+            // Under Nodes 2.0 `pos` is relative to this widget's own row canvas,
+            // whose top is 0 and whose width core stores in `this.width`. In
+            // classic mode `pos` is node-relative, so the row top is `last_y`
+            // and the surface is the whole node. Using the wrong pair here makes
+            // the widget think the pointer left it and swallows the click.
+            const surfaceWidth = nodeDrawWidth(node, this.width);
+            const rowTop = isNodes2Enabled() ? 0 : this.last_y;
             if (this.mouseDowned &&
                 (pos[0] < 15 ||
-                    pos[0] > node.size[0] - 15 ||
-                    pos[1] < this.last_y ||
-                    pos[1] > this.last_y + LiteGraph.NODE_WIDGET_HEIGHT)) {
+                    pos[0] > surfaceWidth - 15 ||
+                    pos[1] < rowTop ||
+                    pos[1] > rowTop + LiteGraph.NODE_WIDGET_HEIGHT)) {
                 this.isMouseDownedAndOver = false;
             }
             for (const part of Object.values(this.hitAreas)) {
@@ -113,7 +131,9 @@ export class MxdBaseWidget {
                     part.wasMouseClickedAndIsOver = this.clickWasWithinBounds(pos, part.bounds);
                 }
             }
-            return (_c = this.onMouseMove(event, pos, node)) !== null && _c !== void 0 ? _c : true;
+            const moveResult = (_c = this.onMouseMove(event, pos, node)) !== null && _c !== void 0 ? _c : true;
+            redraw();
+            return moveResult;
         }
         return false;
     }

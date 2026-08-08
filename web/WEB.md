@@ -36,10 +36,9 @@ enforces this.
   `beforeRegisterNodeDef` (names must match `NODE_CLASS_MAPPINGS` keys).
   - `power_lora_base.js` — shared base for the lora loader: node machinery,
     header row, single-strength row widget. `power_lora_loader.js` adds the
-    dual model/clip strength mode. `power_lora_dom.js` is a parallel DOM-widget
-    implementation of the same rows for Nodes 2.0 — see the note in CLAUDE.md,
-    it is unfinished. Serialization shapes are frozen (see the CLAUDE.md
-    contract).
+    dual model/clip strength mode. Rows are canvas-drawn in both classic and
+    Nodes 2.0; `mxd_nodes2.js` supplies the width and repaint shims that make
+    that work. Serialization shapes are frozen (see the CLAUDE.md contract).
   - `better_combos.js` — folder-tree/grid combo display for the MXD latent
     loaders (adapted from pysssss; scoped to MXD nodes only; keeps its BOM).
   - `run_folder.js` — wraps `app.queuePrompt` for batch folder runs; uses

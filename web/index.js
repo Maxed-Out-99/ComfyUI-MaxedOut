@@ -18,7 +18,6 @@ import './lib/mxd_smart_search.js';
 import './nodes/better_combos.js';
 import './nodes/image_comparer.js';
 import './vendor/zip_loader/zip_loader.js';
-import './nodes/power_lora_dom.js';
 import './nodes/power_lora_base.js';
 import './nodes/power_lora_loader.js';
 import './nodes/ltx_sampler.js';
