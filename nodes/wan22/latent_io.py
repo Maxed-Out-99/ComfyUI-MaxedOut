@@ -8,6 +8,10 @@ Registered nodes:
   LoadLatents_FromFolder_I2V_Pipe_MXD  Load Latent Batch Pipe MXD
   LatentPipeUnpack_MXD                 Unpack Latent Pipe MXD
 
+Plus three DEPRECATED legacy-key aliases (LoadLatent_WithParams,
+LoadLatents_FromFolder_WithParams, SaveLatentMXD) so workflows saved against
+the previously published keys still load. See the note above the mappings.
+
 Route: GET /mxd/latents/files (fresh re-scan for the run_folder queuing loop).
 
 Latents are stored under <input>/latents. Each .latent embeds the source
@@ -1311,6 +1315,33 @@ class LatentPipeUnpack_MXD:
         )
 
 
+########################################################################################################################
+# Legacy key aliases
+#
+# These three nodes were published under different mapping keys before the
+# VACE/I2V latent nodes were consolidated. ComfyUI matches saved workflows by
+# MAPPING KEY, not display name, so without these a workflow built against the
+# released version shows a red missing-node box even though a node with the
+# identical name ships right here.
+#
+# Thin subclasses rather than extra entries pointing at the same class, so
+# DEPRECATED lands only on the alias: the frontend keeps deprecated nodes out
+# of the search menu (there is a setting to show them), which means old
+# workflows load silently without cluttering search with duplicates.
+#
+# Do not "clean these up" — deleting one re-breaks every workflow using it.
+class LoadLatent_WithParams(LoadLatent_I2V_MXD):
+    DEPRECATED = True
+
+
+class LoadLatents_FromFolder_WithParams(LoadLatents_FromFolder_I2V_MXD):
+    DEPRECATED = True
+
+
+class SaveLatentMXD(SaveLatent_I2V_MXD):
+    DEPRECATED = True
+
+
 NODE_CLASS_MAPPINGS = {
     "SaveLatent_I2V_MXD": SaveLatent_I2V_MXD,
     "LoadLatent_I2V_MXD": LoadLatent_I2V_MXD,
@@ -1318,8 +1349,14 @@ NODE_CLASS_MAPPINGS = {
     "LoadLatent_I2V_Pipe_MXD": LoadLatent_I2V_Pipe_MXD,
     "LoadLatents_FromFolder_I2V_Pipe_MXD": LoadLatents_FromFolder_I2V_Pipe_MXD,
     "LatentPipeUnpack_MXD": LatentPipeUnpack_MXD,
+    # Legacy keys — see the note above.
+    "LoadLatent_WithParams": LoadLatent_WithParams,
+    "LoadLatents_FromFolder_WithParams": LoadLatents_FromFolder_WithParams,
+    "SaveLatentMXD": SaveLatentMXD,
 }
 
+# The legacy aliases deliberately get NO display name — an unnamed, DEPRECATED
+# node stays out of the search menu entirely.
 NODE_DISPLAY_NAME_MAPPINGS = {
     "SaveLatent_I2V_MXD": "Save Latent MXD",
     "LoadLatent_I2V_MXD": "Load Latent MXD",

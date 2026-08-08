@@ -1,5 +1,5 @@
 {
-  "node_count": 62,
+  "node_count": 65,
   "nodes": {
     "BboxDetectorCombinedBatchMXD": {
       "category": "MXD/Detector",
@@ -1327,6 +1327,65 @@
         "MXD_LATENT_PIPE"
       ]
     },
+    "LoadLatent_WithParams": {
+      "category": "MXD/Latents",
+      "class": "LoadLatent_WithParams",
+      "display_name": null,
+      "function": "load",
+      "input_types": {
+        "required": {
+          "latent": {
+            "type": {
+              "combo": "empty",
+              "dynamic": true
+            }
+          },
+          "refresh_before_run": {
+            "config": {
+              "default": false,
+              "tooltip": "When run_folder is on, re-scan the latents folder for new files right before the queuing loop starts, instead of using the dropdown list as of whenever it was last populated. Use this when another workflow is still writing latents into this folder as you queue this one."
+            },
+            "type": "BOOLEAN"
+          },
+          "run_folder": {
+            "config": {
+              "default": false,
+              "tooltip": "When enabled, hitting Queue Prompt auto-queues every latent in this file's folder, one after another, instead of just the selected file."
+            },
+            "type": "BOOLEAN"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "shift",
+        "positive",
+        "negative",
+        "samples",
+        "steps",
+        "cfg",
+        "sampler_name",
+        "scheduler",
+        "end_at_step",
+        "filename_prefix",
+        "trim_latent",
+        "high_workflow"
+      ],
+      "return_types": [
+        "FLOAT",
+        "CONDITIONING",
+        "CONDITIONING",
+        "LATENT",
+        "INT",
+        "FLOAT",
+        "['euler', 'euler_cfg_pp', 'euler_ancestral', 'euler_ancestral_cfg_pp', 'heun', 'heunpp2', 'exp_heun_2_x0', 'exp_heun_2_x0_sde', 'dpm_2', 'dpm_2_ancestral', 'lms', 'dpm_fast', 'dpm_adaptive', 'dpmpp_2s_ancestral', 'dpmpp_2s_ancestral_cfg_pp', 'dpmpp_sde', 'dpmpp_sde_gpu', 'dpmpp_2m', 'dpmpp_2m_cfg_pp', 'dpmpp_2m_sde', 'dpmpp_2m_sde_gpu', 'dpmpp_2m_sde_heun', 'dpmpp_2m_sde_heun_gpu', 'dpmpp_3m_sde', 'dpmpp_3m_sde_gpu', 'ddpm', 'lcm', 'ipndm', 'ipndm_v', 'deis', 'res_multistep', 'res_multistep_cfg_pp', 'res_multistep_ancestral', 'res_multistep_ancestral_cfg_pp', 'gradient_estimation', 'gradient_estimation_cfg_pp', 'er_sde', 'seeds_2', 'seeds_3', 'sa_solver', 'sa_solver_pece', 'ddim', 'uni_pc', 'uni_pc_bh2']",
+        "['simple', 'sgm_uniform', 'karras', 'exponential', 'ddim_uniform', 'beta', 'normal', 'linear_quadratic', 'kl_optimal']",
+        "INT",
+        "STRING",
+        "INT",
+        "STRING"
+      ]
+    },
     "LoadLatents_FromFolder_I2V_MXD": {
       "category": "MXD/Latents",
       "class": "LoadLatents_FromFolder_I2V_MXD",
@@ -1391,6 +1450,49 @@
       ],
       "return_types": [
         "MXD_LATENT_PIPE"
+      ]
+    },
+    "LoadLatents_FromFolder_WithParams": {
+      "category": "MXD/Latents",
+      "class": "LoadLatents_FromFolder_WithParams",
+      "display_name": null,
+      "function": "load_batch_i2v",
+      "input_types": {
+        "required": {
+          "subfolder": {
+            "type": {
+              "combo": "nonempty",
+              "dynamic": true
+            }
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "shift",
+        "positive",
+        "negative",
+        "samples",
+        "steps",
+        "cfg",
+        "sampler_name",
+        "scheduler",
+        "end_at_step",
+        "filename_prefix",
+        "trim_latent"
+      ],
+      "return_types": [
+        "FLOAT",
+        "CONDITIONING",
+        "CONDITIONING",
+        "LATENT",
+        "INT",
+        "FLOAT",
+        "['euler', 'euler_cfg_pp', 'euler_ancestral', 'euler_ancestral_cfg_pp', 'heun', 'heunpp2', 'exp_heun_2_x0', 'exp_heun_2_x0_sde', 'dpm_2', 'dpm_2_ancestral', 'lms', 'dpm_fast', 'dpm_adaptive', 'dpmpp_2s_ancestral', 'dpmpp_2s_ancestral_cfg_pp', 'dpmpp_sde', 'dpmpp_sde_gpu', 'dpmpp_2m', 'dpmpp_2m_cfg_pp', 'dpmpp_2m_sde', 'dpmpp_2m_sde_gpu', 'dpmpp_2m_sde_heun', 'dpmpp_2m_sde_heun_gpu', 'dpmpp_3m_sde', 'dpmpp_3m_sde_gpu', 'ddpm', 'lcm', 'ipndm', 'ipndm_v', 'deis', 'res_multistep', 'res_multistep_cfg_pp', 'res_multistep_ancestral', 'res_multistep_ancestral_cfg_pp', 'gradient_estimation', 'gradient_estimation_cfg_pp', 'er_sde', 'seeds_2', 'seeds_3', 'sa_solver', 'sa_solver_pece', 'ddim', 'uni_pc', 'uni_pc_bh2']",
+        "['simple', 'sgm_uniform', 'karras', 'exponential', 'ddim_uniform', 'beta', 'normal', 'linear_quadratic', 'kl_optimal']",
+        "INT",
+        "STRING",
+        "INT"
       ]
     },
     "LoadVideoFromFolderMXD": {
@@ -2075,6 +2177,67 @@
       "return_types": [
         "STRING"
       ]
+    },
+    "SaveLatentMXD": {
+      "category": "MXD/Latents",
+      "class": "SaveLatentMXD",
+      "display_name": null,
+      "function": "save_only",
+      "input_types": {
+        "hidden": {
+          "extra_pnginfo": {
+            "type": "EXTRA_PNGINFO"
+          },
+          "prompt": {
+            "type": "PROMPT"
+          },
+          "unique_id": {
+            "type": "UNIQUE_ID"
+          }
+        },
+        "optional": {
+          "trim_latent": {
+            "config": {
+              "default": 0,
+              "max": 10000,
+              "min": 0,
+              "step": 1,
+              "tooltip": "VACE 2.2 trim_latent value to preserve with this latent. Usually 0 or 1. Ignored for t2v/i2v."
+            },
+            "type": "INT"
+          }
+        },
+        "required": {
+          "filename_prefix": {
+            "config": {
+              "default": "ComfyUI",
+              "tooltip": "Prefix for saved files"
+            },
+            "type": "STRING"
+          },
+          "negative": {
+            "config": {
+              "tooltip": "Negative CONDITIONING to save alongside the latent."
+            },
+            "type": "CONDITIONING"
+          },
+          "positive": {
+            "config": {
+              "tooltip": "Positive CONDITIONING to save alongside the latent."
+            },
+            "type": "CONDITIONING"
+          },
+          "samples": {
+            "config": {
+              "tooltip": "Latent to save."
+            },
+            "type": "LATENT"
+          }
+        }
+      },
+      "output_node": true,
+      "return_names": null,
+      "return_types": []
     },
     "SaveLatent_I2V_MXD": {
       "category": "MXD/Latents",
