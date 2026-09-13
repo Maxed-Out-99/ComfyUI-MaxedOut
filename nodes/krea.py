@@ -33,8 +33,12 @@ class Krea2EditModelPatchMXD:
             "required": {
                 "model": ("MODEL",),
                 "source_image": ("IMAGE",),
+            },
+            "optional": {
+                "source_image_b": ("IMAGE", {"tooltip": "Optional second reference (subject); the first image supplies the scene."}),
                 "vae": ("VAE",),
                 "target_latent": ("LATENT", {"tooltip": "Connect the same latent that feeds the sampler so sources are encoded at the target resolution before sampling."}),
+                "ref_boost_mask": ("MASK", {"tooltip": "Optional region on the last reference to boost, such as the face."}),
                 "ref_boost": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1000.0, "step": 0.01, "round": 0.001,
                                         "tooltip": "Reference attention strength for the last source image. 1.0 = unchanged."}),
                 "ref_boost_a": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1000.0, "step": 0.01, "round": 0.001,
@@ -42,16 +46,14 @@ class Krea2EditModelPatchMXD:
                 "fit_mode": (["fit", "crop (legacy)"], {"default": "fit",
                              "tooltip": "Fit preserves the source aspect ratio at a centered offset; crop (legacy) center-crops to the target aspect ratio."}),
             },
-            "optional": {
-                "source_image_b": ("IMAGE", {"tooltip": "Optional second reference (subject); the first image supplies the scene."}),
-                "ref_boost_mask": ("MASK", {"tooltip": "Optional region on the last reference to boost, such as the face."}),
-            },
         }
 
-    def patch(self, model, source_image, vae, target_latent, ref_boost=1.0,
+    def patch(self, model, source_image, vae=None, target_latent=None, ref_boost=1.0,
               source_image_b=None, ref_boost_a=1.0, fit_mode="fit", ref_boost_mask=None):
+        if vae is None:
+            raise ValueError("Connect a VAE to encode the source images for Krea2 Edit (source patch) MXD.")
         upstream = sys.modules[_source_patch_class().__module__]
-        height, width = target_latent["samples"].shape[-2:]
+        height, width = target_latent["samples"].shape[-2:] if target_latent is not None else (None, None)
         images = [source_image]
         if source_image_b is not None:
             images.append(source_image_b)
@@ -66,7 +68,7 @@ class Krea2EditModelPatchMXD:
                 for index, image in enumerate(images)
             ]
 
-        sources = encode_sources(height, width)
+        sources = encode_sources(height, width) if target_latent is not None else None
 
         def wrapper(executor, x, timesteps, context, *args, **kwargs):
             transformer_options = kwargs.get("transformer_options")
