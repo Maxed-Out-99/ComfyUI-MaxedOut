@@ -53,6 +53,24 @@ export class MxdPowerLoraLoaderBase extends MxdBaseServerNode {
     this.loraWidgetsCounter = 0;
     this.widgetButtonSpacer = null;
 
+    // This class replaces ComfyUI's generated server-node class. If a frontend
+    // version misses syncing `has_errors` onto the replacement, feed its
+    // recorded validation error through LiteGraph's own native error style.
+    const nativeErrorStroke = this.strokeStyles?.error;
+    this.strokeStyles = this.strokeStyles || {};
+    this.strokeStyles.mxdRecordedValidationError = function () {
+      if (this.has_errors || !app.lastNodeErrors?.[String(this.id)]?.errors?.length) return;
+      if (typeof nativeErrorStroke === "function") {
+        this.has_errors = true;
+        try {
+          return nativeErrorStroke.call(this);
+        } finally {
+          this.has_errors = false;
+        }
+      }
+      return { padding: 12, lineWidth: 10, color: LiteGraph.NODE_ERROR_COLOUR };
+    };
+
     mxdApi.getLoras();
 
     if (mxdRuntime.loadingApiJson) {

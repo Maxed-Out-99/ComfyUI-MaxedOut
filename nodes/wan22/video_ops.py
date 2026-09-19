@@ -2,20 +2,22 @@
 
 Registered nodes (always):
   Frames_Select_StartEnd_MXD   Select Frames MXD
-  Frames_Remove_From_Start_MXD Remove Frames From Start MXD
+  Frames_Remove_From_Start_MXD Remove Frames MXD
   GroupVideoFramesMXD          Group Video Frames MXD
 
 Registered nodes (only when HAVE_COMFY_API):
   CombineVideos_MXD            Combine Videos MXD
-  LoadVideoMXD                 Load Video MXD
-  SaveVideoMXD                 Save Video MXD (merges a prior stage's workflow
+  CreateAndSaveVideoMXD        Save Video MXD (creates and saves in one node)
+  LoadVideoMXD                 Load Video MXD (also outputs images/audio/fps/
+                               bit_depth, like Get Video Components, in one node)
+  SaveVideoMXD                 Save Wan22 Video MXD (merges a prior stage's workflow
                                into the embedded metadata via latent_io helpers)
   PreviewVideoMXD              Preview Video MXD
 
-Route: GET /mxd/videos/input (video-only file list for LoadVideoMXD's combo).
 """
 from __future__ import annotations
 import os
+from fractions import Fraction
 
 import torch
 
@@ -42,43 +44,25 @@ except Exception as _e:
     HAVE_COMFY_API = False
     print(f"[ComfyUI-MaxedOut] comfy_api not available in wan22.video_ops: {_e}")
 
-from aiohttp import web
-
 from .latent_io import _merge_prior_workflow_into_current
-from ..shared.routes import register_get_route
 
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".avi"}
 
 
-async def mxd_list_input_videos(request):
-    """
-    Return a JSON list of *video* files under the input folder (relative paths),
-    sorted by last modified time (newest first) so the combo's 'first' entry
-    is always the latest render.
-    """
-    input_dir = folder_paths.get_input_directory()
-    entries = []
+def _frame_window(total, count, offset, mode):
+    offset = max(1, min(offset, total))
+    count = max(1, min(count, total - offset + 1))
 
-    for root, _, filenames in os.walk(input_dir):
-        for name in filenames:
-            ext = os.path.splitext(name)[1].lower()
-            if ext in VIDEO_EXTS:
-                full = os.path.join(root, name)
-                rel = os.path.relpath(full, input_dir).replace("\\", "/")
-                try:
-                    mtime = os.path.getmtime(full)
-                except OSError:
-                    mtime = 0
-                entries.append((mtime, rel))
+    if mode == "start":
+        start_idx = offset - 1
+        end_idx = start_idx + count
+    elif mode == "end":
+        start_idx = max(0, total - offset - count + 1)
+        end_idx = start_idx + count
+    else:
+        raise ValueError(f"Invalid mode '{mode}'. Expected 'start' or 'end'.")
 
-    # Sort newest -> oldest, to match Comfy's internal behavior
-    entries.sort(key=lambda x: x[0], reverse=True)
-
-    files = [rel for _, rel in entries]
-    return web.json_response(files)
-
-
-register_get_route("/mxd/videos/input", mxd_list_input_videos)
+    return start_idx, end_idx
 
 
 def _select_frames_start_end(frames, count=1, offset=1, mode="end"):
@@ -86,22 +70,21 @@ def _select_frames_start_end(frames, count=1, offset=1, mode="end"):
     if total <= 0:
         raise ValueError("No frames available for selection.")
 
-    # Clamp offset and count
-    offset = max(1, min(offset, total))
-    count = max(1, min(count, total - offset + 1))
+    start_idx, end_idx = _frame_window(total, count, offset, mode)
+    return frames[start_idx:end_idx].clone()
 
-    if mode == "start":
-        start_idx = offset - 1
-        end_idx = start_idx + count
-        selected = frames[start_idx:end_idx].clone()
-    elif mode == "end":
-        start_idx = max(0, total - offset - count + 1)
-        end_idx = start_idx + count
-        selected = frames[start_idx:end_idx].clone()
-    else:
-        raise ValueError(f"Invalid mode '{mode}'. Expected 'start' or 'end'.")
 
-    return selected
+def _remove_frames_start_end(frames, count=1, offset=1, mode="start"):
+    total = int(frames.shape[0])
+    if total <= 0:
+        raise ValueError("No frames available for removal.")
+
+    start_idx, end_idx = _frame_window(total, count, offset, mode)
+    remaining = torch.cat([frames[:start_idx], frames[end_idx:]], dim=0).clone()
+    if remaining.shape[0] == 0:
+        raise ValueError("Removing this window would leave no frames.")
+
+    return remaining
 
 
 # ---------- MXD Frames Select Start/End (from start or end of sequence) ----------
@@ -143,11 +126,47 @@ class Frames_Select_StartEnd_MXD:
         return (selected,)
 
 
-# ---------- MXD Frames Remove From Start ----------
-class Frames_Remove_From_Start_MXD:
+# ---------- MXD Frames Remove (from start or end of sequence) ----------
+class FramesRemoveMXD:
     def __init__(self):
         pass
 
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "frames": ("IMAGE",),
+                "count": ("INT", {
+                    "default": 10,
+                    "min": 1,
+                    "max": 10000,
+                    "tooltip": "Number of frames to remove"
+                }),
+                "offset": ("INT", {
+                    "default": 1,
+                    "min": 1,
+                    "max": 10000,
+                    "tooltip": "How far into the video to start removal (from start or end)"
+                }),
+                "mode": (["start", "end"], {
+                    "default": "start",
+                    "tooltip": "Remove frames from the start or end of the sequence"
+                }),
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("image",)
+    FUNCTION     = "main"
+    CATEGORY     = "MXD/images"
+
+    def main(self, frames=None, count=10, offset=1, mode="start"):
+        remaining = _remove_frames_start_end(frames, count=count, offset=offset, mode=mode)
+        return (remaining,)
+
+
+# Keep this published node's schema frozen for existing workflows.
+class Frames_Remove_From_Start_MXD:
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -164,13 +183,11 @@ class Frames_Remove_From_Start_MXD:
 
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image",)
-    FUNCTION     = "main"
-    CATEGORY     = "MXD/images"
+    FUNCTION = "main"
+    CATEGORY = "MXD/images"
 
     def main(self, frames=None, count=10):
-        # Skip the first `count` frames instead of keeping them
-        frames_after = frames[count:].clone()
-        return (frames_after,)
+        return (frames[count:].clone(),)
 
 
 class GroupVideoFramesMXD:
@@ -355,14 +372,19 @@ if HAVE_COMFY_API:
 
             return (combined_video,)
 
-    # ---------- Load Video MXD (video-only picker with refresh) ----------
-    class LoadVideoMXD:
-        """Load a video from /input with a refresh button (videos only)."""
+    # ---------- Load Video MXD ----------
+    class LoadVideoComponentsMXD:
+        """Load a video from /input (videos only).
+
+        Also extracts components (images/audio/fps/bit_depth) inline so this
+        node covers what LoadVideo + GetVideoComponents would otherwise take two
+        nodes to do.
+        """
 
         CATEGORY = "image/video"
         FUNCTION = "load"
-        RETURN_TYPES = ("VIDEO", "STRING")
-        RETURN_NAMES = ("video", "video_path")
+        RETURN_TYPES = ("VIDEO", "IMAGE", "AUDIO", "FLOAT", "INT")
+        RETURN_NAMES = ("video", "images", "audio", "fps", "bit_depth")
         TITLE = "Load Video MXD"
 
         @classmethod
@@ -370,14 +392,7 @@ if HAVE_COMFY_API:
             return {
                 "required": {
                     "file": ("COMBO", {
-                        # Only allow video uploads in the picker
                         "video_upload": True,
-                        # Custom route that returns ONLY videos in /input
-                        "remote": {
-                            "route": "/mxd/videos/input",
-                            "refresh_button": True,
-                            "control_after_refresh": "first",
-                        },
                     }),
                 }
             }
@@ -423,7 +438,10 @@ if HAVE_COMFY_API:
                 raise ValueError(f"[LoadVideoMXD] Not a video file: {video_path}")
 
             print(f"[LoadVideoMXD] Loaded exactly: {video_path}")
-            return (VideoFromFile(video_path), video_path)
+            video = VideoFromFile(video_path)
+            components = video.get_components()
+            bit_depth = video.get_bit_depth()
+            return (video, components.images, components.audio, float(components.frame_rate), bit_depth)
 
         # --- nice-to-haves --------------------------------------------------------
 
@@ -454,6 +472,36 @@ if HAVE_COMFY_API:
 
             return f"Invalid video file: {file}"
 
+    # Keep this published node's inputs and outputs frozen for existing workflows.
+    class LoadVideoMXD(LoadVideoComponentsMXD):
+        RETURN_TYPES = ("VIDEO", "STRING")
+        RETURN_NAMES = ("video", "video_path")
+        TITLE = "Load Video MXD"
+
+        @classmethod
+        def INPUT_TYPES(cls):
+            return {
+                "required": {
+                    "file": ("COMBO", {
+                        "video_upload": True,
+                        "remote": {
+                            "route": "/mxd/videos/input",
+                            "refresh_button": True,
+                            "control_after_refresh": "first",
+                        },
+                    }),
+                }
+            }
+
+        def load(self, file: str):
+            video_path = self._resolve_video_path(file)
+            if not os.path.isfile(video_path):
+                raise FileNotFoundError(f"[LoadVideoMXD] File not found: {video_path}")
+            if not self._is_video_file(video_path):
+                raise ValueError(f"[LoadVideoMXD] Not a video file: {video_path}")
+            print(f"[LoadVideoMXD] Loaded exactly: {video_path}")
+            return (VideoFromFile(video_path), video_path)
+
     # ---------- Save Video MXD ----------
     class SaveVideoMXD(io.ComfyNode):
         @classmethod
@@ -466,8 +514,8 @@ if HAVE_COMFY_API:
                 inputs=[
                     io.Video.Input("video", tooltip="The video to save."),
                     io.String.Input("filename_prefix", default="video/ComfyUI", tooltip="The prefix for the file to save. This may include formatting information such as %date:yyyy-MM-dd% or %Empty Latent Image.width% to include values from nodes."),
-                    io.Combo.Input("format", options=VideoContainer.as_input(), default="auto", tooltip="The format to save the video as."),
-                    io.Combo.Input("codec", options=VideoCodec.as_input(), default="auto", tooltip="The codec to use for the video."),
+                    io.Combo.Input("format", options=["auto", "mp4"], default="auto", tooltip="The format to save the video as."),
+                    io.Combo.Input("codec", options=["auto", "h264"], default="auto", tooltip="The codec to use for the video."),
                     io.Boolean.Input(
                         "embed_workflow",
                         default=True,
@@ -525,6 +573,130 @@ if HAVE_COMFY_API:
 
             return io.NodeOutput(ui=ui.PreviewVideo([ui.SavedResult(file, subfolder, io.FolderType.output)]))
 
+    # ---------- Create + Save Video MXD ----------
+    class CreateAndSaveVideoMXD(io.ComfyNode):
+        @classmethod
+        def define_schema(cls):
+            return io.Schema(
+                node_id="CreateAndSaveVideoMXD",
+                display_name="Create and Save Video MXD",
+                search_aliases=["create video", "images to video", "export video"],
+                category="video",
+                description="Creates a video from images and saves it to the ComfyUI output directory.",
+                inputs=[
+                    io.Image.Input("images", tooltip="The images to create a video from."),
+                    io.Float.Input("fps", default=30.0, min=1.0, max=120.0, step=1.0),
+                    io.String.Input(
+                        "filename_prefix",
+                        default="video/ComfyUI",
+                        tooltip="The prefix for the saved file. This may include formatting information.",
+                    ),
+                    io.Combo.Input(
+                        "format",
+                        options=VideoContainer.as_input(),
+                        default="auto",
+                        tooltip="The format to save the video as.",
+                    ),
+                    io.DynamicCombo.Input(
+                        "codec",
+                        options=[
+                            io.DynamicCombo.Option("auto", []),
+                            io.DynamicCombo.Option(
+                                "h264",
+                                [
+                                    io.DynamicCombo.Input(
+                                        "encoding",
+                                        display_name="encoding mode",
+                                        options=[
+                                            io.DynamicCombo.Option("auto", []),
+                                            io.DynamicCombo.Option(
+                                                "re-encode",
+                                                [
+                                                    io.Float.Input(
+                                                        "crf",
+                                                        default=23.0,
+                                                        min=0.0,
+                                                        max=51.0,
+                                                        step=1.0,
+                                                        tooltip="Lower values produce higher quality and larger files.",
+                                                    )
+                                                ],
+                                            ),
+                                        ],
+                                        optional=True,
+                                        tooltip="Automatic preserves compatible H.264 streams. Re-encode applies a custom CRF.",
+                                    )
+                                ],
+                            ),
+                        ],
+                        tooltip="The codec to use for the video.",
+                    ),
+                    io.Audio.Input("audio", optional=True, tooltip="The audio to add to the video."),
+                    io.Int.Input(
+                        "bit_depth",
+                        min=8,
+                        max=10,
+                        default=8,
+                        step=2,
+                        optional=True,
+                        display_mode=io.NumberDisplay.number,
+                        tooltip="10-bit keeps smoother gradients, but some players and nodes may not support it.",
+                    ),
+                ],
+                hidden=[io.Hidden.prompt, io.Hidden.extra_pnginfo],
+                outputs=[io.Video.Output("video")],
+                is_output_node=True,
+            )
+
+        @classmethod
+        def execute(
+            cls,
+            images,
+            fps: float,
+            filename_prefix: str,
+            format: str,
+            codec: io.DynamicCombo.Type,
+            audio=None,
+            bit_depth: int = 8,
+        ) -> io.NodeOutput:
+            video = VideoFromComponents(
+                VideoComponents(images=images, audio=audio, frame_rate=Fraction(fps)),
+                bit_depth=bit_depth,
+            )
+            codec_name = codec["codec"]
+            encoding = codec.get("encoding") or {}
+            width, height = video.get_dimensions()
+            full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(
+                filename_prefix,
+                folder_paths.get_output_directory(),
+                width,
+                height,
+            )
+
+            saved_metadata = None
+            if not args.disable_metadata:
+                metadata = {}
+                if cls.hidden.extra_pnginfo is not None:
+                    metadata.update(cls.hidden.extra_pnginfo)
+                if cls.hidden.prompt is not None:
+                    metadata["prompt"] = cls.hidden.prompt
+                if metadata:
+                    saved_metadata = metadata
+
+            file = f"{filename}_{counter:05}_.{VideoContainer.get_extension(format)}"
+            video.save_to(
+                os.path.join(full_output_folder, file),
+                format=VideoContainer(format),
+                codec=codec_name,
+                metadata=saved_metadata,
+                crf=encoding.get("crf"),
+            )
+
+            return io.NodeOutput(
+                video,
+                ui=ui.PreviewVideo([ui.SavedResult(file, subfolder, io.FolderType.output)]),
+            )
+
     class PreviewVideoMXD(io.ComfyNode):
         @classmethod
         def define_schema(cls):
@@ -563,12 +735,14 @@ if HAVE_COMFY_API:
 
 NODE_CLASS_MAPPINGS = {
     "Frames_Remove_From_Start_MXD": Frames_Remove_From_Start_MXD,
+    "FramesRemoveMXD": FramesRemoveMXD,
     "GroupVideoFramesMXD": GroupVideoFramesMXD,
     "Frames_Select_StartEnd_MXD": Frames_Select_StartEnd_MXD,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "Frames_Remove_From_Start_MXD": "Remove Frames From Start MXD",
+    "FramesRemoveMXD": "Remove Frames MXD",
     "GroupVideoFramesMXD": "Group Video Frames MXD",
     "Frames_Select_StartEnd_MXD": "Select Frames MXD",
 }
@@ -576,13 +750,17 @@ NODE_DISPLAY_NAME_MAPPINGS = {
 if HAVE_COMFY_API:
     NODE_CLASS_MAPPINGS.update({
         "CombineVideos_MXD": CombineVideos_MXD,
+        "CreateAndSaveVideoMXD": CreateAndSaveVideoMXD,
         "LoadVideoMXD": LoadVideoMXD,
+        "LoadVideoComponentsMXD": LoadVideoComponentsMXD,
         "SaveVideoMXD": SaveVideoMXD,
         "PreviewVideoMXD": PreviewVideoMXD,
     })
     NODE_DISPLAY_NAME_MAPPINGS.update({
         "CombineVideos_MXD": "Combine Videos MXD",
+        "CreateAndSaveVideoMXD": "Create and Save Video MXD",
         "LoadVideoMXD": "Load Video MXD",
+        "LoadVideoComponentsMXD": "Load Video + Components MXD",
         "SaveVideoMXD": "Save Video MXD",
         "PreviewVideoMXD": "Preview Video MXD",
     })

@@ -58,6 +58,7 @@ Leave all three unset and nothing changes -- this is entirely opt-in.
 | `Flux Empty Latent Image MXD` / `ZIT Empty Latent Image MXD` / `SDXL Empty Latent Image MXD` | Resolution presets plus vertical toggle to avoid retyping the same sizes repeatedly. |
 | `Save Image MXD` | Simple save modes (`Save + Preview`, `Save Only`, `Preview Only`). |
 | `WAN 2.2 MXD` nodes | Helpers for WAN 2.2 latent/video prep, frame tools, and I2V-focused workflows. |
+| `Krea 2 Edit MXD` / `Krea2 Edit MXD` | Krea 2 source-preservation and grounded prompt encoding. No separate custom-node pack is required; model weights are still downloaded separately. |
 | Prompt spellcheck | Right-click a misspelled word in any prompt box for suggestions. Works offline, no node to add. |
 
 ## Companion Packs
@@ -92,12 +93,16 @@ Huge thanks to these projects. I have learned a lot from them and built on many 
   Inspiration for LoRA Loader, Image/Video Comparer, and more.
 - https://github.com/kijai/ComfyUI-KJNodes
   Major reference and inspiration for my own nodes.
+- https://github.com/lbouaraba/comfyui-krea2edit
+  The Krea 2 Edit MXD implementation is adapted from Conrad Locke's
+  Apache-2.0-licensed ComfyUI-Krea2Edit project.
 
 If you star this repo, definitely consider starring theirs too.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Vendored code under `web/vendor/` keeps its own
-licenses, carried alongside it in that folder.
+MIT — see [LICENSE](LICENSE). Third-party code keeps its original license; see
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) and the licenses carried
+alongside vendored web code.
 
 This pack has no pip dependencies — everything it needs ships with ComfyUI.

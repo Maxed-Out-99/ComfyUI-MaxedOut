@@ -1,5 +1,5 @@
 {
-  "node_count": 65,
+  "node_count": 70,
   "nodes": {
     "BboxDetectorCombinedBatchMXD": {
       "category": "MXD/Detector",
@@ -64,6 +64,141 @@
         }
       },
       "output_node": false,
+      "return_names": [
+        "video"
+      ],
+      "return_types": [
+        "VIDEO"
+      ]
+    },
+    "CreateAndSaveVideoMXD": {
+      "category": "video",
+      "class": "CreateAndSaveVideoMXD",
+      "display_name": "Create and Save Video MXD",
+      "function": "EXECUTE_NORMALIZED",
+      "input_types": {
+        "hidden": {
+          "extra_pnginfo": {
+            "type": "EXTRA_PNGINFO"
+          },
+          "prompt": {
+            "type": "PROMPT"
+          }
+        },
+        "optional": {
+          "audio": {
+            "config": {
+              "tooltip": "The audio to add to the video."
+            },
+            "type": "AUDIO"
+          },
+          "bit_depth": {
+            "config": {
+              "default": 8,
+              "display": "number",
+              "max": 10,
+              "min": 8,
+              "step": 2,
+              "tooltip": "10-bit keeps smoother gradients, but some players and nodes may not support it."
+            },
+            "type": "INT"
+          }
+        },
+        "required": {
+          "codec": {
+            "config": {
+              "options": [
+                {
+                  "inputs": {
+                    "required": {}
+                  },
+                  "key": "auto"
+                },
+                {
+                  "inputs": {
+                    "optional": {
+                      "encoding": [
+                        "COMFY_DYNAMICCOMBO_V3",
+                        {
+                          "display_name": "encoding mode",
+                          "options": [
+                            {
+                              "inputs": {
+                                "required": {}
+                              },
+                              "key": "auto"
+                            },
+                            {
+                              "inputs": {
+                                "required": {
+                                  "crf": [
+                                    "FLOAT",
+                                    {
+                                      "default": 23.0,
+                                      "max": 51.0,
+                                      "min": 0.0,
+                                      "step": 1.0,
+                                      "tooltip": "Lower values produce higher quality and larger files."
+                                    }
+                                  ]
+                                }
+                              },
+                              "key": "re-encode"
+                            }
+                          ],
+                          "tooltip": "Automatic preserves compatible H.264 streams. Re-encode applies a custom CRF."
+                        }
+                      ]
+                    },
+                    "required": {}
+                  },
+                  "key": "h264"
+                }
+              ],
+              "tooltip": "The codec to use for the video."
+            },
+            "type": "COMFY_DYNAMICCOMBO_V3"
+          },
+          "filename_prefix": {
+            "config": {
+              "default": "video/ComfyUI",
+              "multiline": false,
+              "tooltip": "The prefix for the saved file. This may include formatting information."
+            },
+            "type": "STRING"
+          },
+          "format": {
+            "config": {
+              "default": "auto",
+              "multiselect": false,
+              "options": [
+                "auto",
+                "mp4",
+                "mkv",
+                "webm"
+              ],
+              "tooltip": "The format to save the video as."
+            },
+            "type": "COMBO"
+          },
+          "fps": {
+            "config": {
+              "default": 30.0,
+              "max": 120.0,
+              "min": 1.0,
+              "step": 1.0
+            },
+            "type": "FLOAT"
+          },
+          "images": {
+            "config": {
+              "tooltip": "The images to create a video from."
+            },
+            "type": "IMAGE"
+          }
+        }
+      },
+      "output_node": true,
       "return_names": [
         "video"
       ],
@@ -356,6 +491,56 @@
         "BOOLEAN"
       ]
     },
+    "FramesRemoveMXD": {
+      "category": "MXD/images",
+      "class": "FramesRemoveMXD",
+      "display_name": "Remove Frames MXD",
+      "function": "main",
+      "input_types": {
+        "required": {
+          "count": {
+            "config": {
+              "default": 10,
+              "max": 10000,
+              "min": 1,
+              "tooltip": "Number of frames to remove"
+            },
+            "type": "INT"
+          },
+          "frames": {
+            "type": "IMAGE"
+          },
+          "mode": {
+            "config": {
+              "default": "start",
+              "tooltip": "Remove frames from the start or end of the sequence"
+            },
+            "type": {
+              "combo": [
+                "start",
+                "end"
+              ]
+            }
+          },
+          "offset": {
+            "config": {
+              "default": 1,
+              "max": 10000,
+              "min": 1,
+              "tooltip": "How far into the video to start removal (from start or end)"
+            },
+            "type": "INT"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "image"
+      ],
+      "return_types": [
+        "IMAGE"
+      ]
+    },
     "Frames_Remove_From_Start_MXD": {
       "category": "MXD/images",
       "class": "Frames_Remove_From_Start_MXD",
@@ -640,6 +825,128 @@
       ],
       "return_types": [
         "IMAGE"
+      ]
+    },
+    "Krea2EditGroundedEncodeMXD": {
+      "category": "MXD/Krea",
+      "class": "Krea2EditGroundedEncodeMXD",
+      "display_name": "Krea2 Edit MXD",
+      "function": "encode",
+      "input_types": {
+        "optional": {
+          "grounding_px": {
+            "config": {
+              "default": 768,
+              "max": 4096,
+              "min": 0,
+              "step": 64,
+              "tooltip": "Maximum longest side fed to Qwen3-VL; 0 uses native resolution."
+            },
+            "type": "INT"
+          },
+          "image": {
+            "type": "IMAGE"
+          },
+          "image_b": {
+            "config": {
+              "tooltip": "Optional second reference (subject) for multi-reference LoRAs; the first image is the scene."
+            },
+            "type": "IMAGE"
+          }
+        },
+        "required": {
+          "clip": {
+            "type": "CLIP"
+          },
+          "prompt": {
+            "config": {
+              "default": "",
+              "multiline": true
+            },
+            "type": "STRING"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": null,
+      "return_types": [
+        "CONDITIONING"
+      ]
+    },
+    "Krea2EditModelPatchMXD": {
+      "category": "MXD/Krea",
+      "class": "Krea2EditModelPatchMXD",
+      "display_name": "Krea 2 Edit MXD",
+      "function": "patch",
+      "input_types": {
+        "optional": {
+          "image_1_boost": {
+            "config": {
+              "default": 1.0,
+              "max": 1000.0,
+              "min": 0.0,
+              "round": 0.001,
+              "step": 0.01,
+              "tooltip": "Attention strength for Image 1. 1.0 = unchanged."
+            },
+            "type": "FLOAT"
+          },
+          "image_1_boost_mask": {
+            "config": {
+              "tooltip": "Optional mask limiting Image 1 Boost to a region such as a face. White areas are boosted."
+            },
+            "type": "MASK"
+          },
+          "image_2": {
+            "config": {
+              "tooltip": "Optional second reference, usually a subject to place into Image 1."
+            },
+            "type": "IMAGE"
+          },
+          "image_2_boost": {
+            "config": {
+              "default": 1.0,
+              "max": 1000.0,
+              "min": 0.0,
+              "round": 0.001,
+              "step": 0.01,
+              "tooltip": "Attention strength for Image 2. 1.0 = unchanged; no effect when Image 2 is disconnected."
+            },
+            "type": "FLOAT"
+          },
+          "image_2_boost_mask": {
+            "config": {
+              "tooltip": "Optional mask limiting Image 2 Boost to a region such as a face. White areas are boosted; no effect when Image 2 is disconnected."
+            },
+            "type": "MASK"
+          },
+          "vae": {
+            "config": {
+              "tooltip": "Required. VAE used to encode the reference images."
+            },
+            "type": "VAE"
+          }
+        },
+        "required": {
+          "image_1": {
+            "config": {
+              "tooltip": "Primary reference image, usually the scene or image to edit."
+            },
+            "type": "IMAGE"
+          },
+          "model": {
+            "type": "MODEL"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "model",
+        "source_latent"
+      ],
+      "return_types": [
+        "MODEL",
+        "LATENT"
       ]
     },
     "KreaLayerVarianceMXD": {
@@ -1038,7 +1345,7 @@
         "LATENT",
         "INT",
         "FLOAT",
-        "['euler', 'euler_cfg_pp', 'euler_ancestral', 'euler_ancestral_cfg_pp', 'heun', 'heunpp2', 'exp_heun_2_x0', 'exp_heun_2_x0_sde', 'dpm_2', 'dpm_2_ancestral', 'lms', 'dpm_fast', 'dpm_adaptive', 'dpmpp_2s_ancestral', 'dpmpp_2s_ancestral_cfg_pp', 'dpmpp_sde', 'dpmpp_sde_gpu', 'dpmpp_2m', 'dpmpp_2m_cfg_pp', 'dpmpp_2m_sde', 'dpmpp_2m_sde_gpu', 'dpmpp_2m_sde_heun', 'dpmpp_2m_sde_heun_gpu', 'dpmpp_3m_sde', 'dpmpp_3m_sde_gpu', 'ddpm', 'lcm', 'ipndm', 'ipndm_v', 'deis', 'res_multistep', 'res_multistep_cfg_pp', 'res_multistep_ancestral', 'res_multistep_ancestral_cfg_pp', 'gradient_estimation', 'gradient_estimation_cfg_pp', 'er_sde', 'seeds_2', 'seeds_3', 'sa_solver', 'sa_solver_pece', 'ddim', 'uni_pc', 'uni_pc_bh2']",
+        "['euler', 'euler_cfg_pp', 'euler_ancestral', 'euler_ancestral_cfg_pp', 'heun', 'heunpp2', 'exp_heun_2_x0', 'exp_heun_2_x0_sde', 'dpm_2', 'dpm_2_ancestral', 'lms', 'dpm_fast', 'dpm_adaptive', 'dpmpp_2s_ancestral', 'dpmpp_2s_ancestral_cfg_pp', 'dpmpp_sde', 'dpmpp_sde_gpu', 'dpmpp_2m', 'dpmpp_2m_cfg_pp', 'dpmpp_2m_sde', 'dpmpp_2m_sde_gpu', 'dpmpp_2m_sde_heun', 'dpmpp_2m_sde_heun_gpu', 'dpmpp_3m_sde', 'dpmpp_3m_sde_gpu', 'ddpm', 'lcm', 'ipndm', 'ipndm_v', 'deis', 'cfgpp_ud10_ab', 'res_multistep', 'res_multistep_cfg_pp', 'res_multistep_ancestral', 'res_multistep_ancestral_cfg_pp', 'gradient_estimation', 'gradient_estimation_cfg_pp', 'er_sde', 'seeds_2', 'seeds_3', 'sa_solver', 'sa_solver_pece', 'ddim', 'uni_pc', 'uni_pc_bh2']",
         "['simple', 'sgm_uniform', 'karras', 'exponential', 'ddim_uniform', 'beta', 'normal', 'linear_quadratic', 'kl_optimal']",
         "INT",
         "STRING",
@@ -1282,7 +1589,7 @@
         "LATENT",
         "INT",
         "FLOAT",
-        "['euler', 'euler_cfg_pp', 'euler_ancestral', 'euler_ancestral_cfg_pp', 'heun', 'heunpp2', 'exp_heun_2_x0', 'exp_heun_2_x0_sde', 'dpm_2', 'dpm_2_ancestral', 'lms', 'dpm_fast', 'dpm_adaptive', 'dpmpp_2s_ancestral', 'dpmpp_2s_ancestral_cfg_pp', 'dpmpp_sde', 'dpmpp_sde_gpu', 'dpmpp_2m', 'dpmpp_2m_cfg_pp', 'dpmpp_2m_sde', 'dpmpp_2m_sde_gpu', 'dpmpp_2m_sde_heun', 'dpmpp_2m_sde_heun_gpu', 'dpmpp_3m_sde', 'dpmpp_3m_sde_gpu', 'ddpm', 'lcm', 'ipndm', 'ipndm_v', 'deis', 'res_multistep', 'res_multistep_cfg_pp', 'res_multistep_ancestral', 'res_multistep_ancestral_cfg_pp', 'gradient_estimation', 'gradient_estimation_cfg_pp', 'er_sde', 'seeds_2', 'seeds_3', 'sa_solver', 'sa_solver_pece', 'ddim', 'uni_pc', 'uni_pc_bh2']",
+        "['euler', 'euler_cfg_pp', 'euler_ancestral', 'euler_ancestral_cfg_pp', 'heun', 'heunpp2', 'exp_heun_2_x0', 'exp_heun_2_x0_sde', 'dpm_2', 'dpm_2_ancestral', 'lms', 'dpm_fast', 'dpm_adaptive', 'dpmpp_2s_ancestral', 'dpmpp_2s_ancestral_cfg_pp', 'dpmpp_sde', 'dpmpp_sde_gpu', 'dpmpp_2m', 'dpmpp_2m_cfg_pp', 'dpmpp_2m_sde', 'dpmpp_2m_sde_gpu', 'dpmpp_2m_sde_heun', 'dpmpp_2m_sde_heun_gpu', 'dpmpp_3m_sde', 'dpmpp_3m_sde_gpu', 'ddpm', 'lcm', 'ipndm', 'ipndm_v', 'deis', 'cfgpp_ud10_ab', 'res_multistep', 'res_multistep_cfg_pp', 'res_multistep_ancestral', 'res_multistep_ancestral_cfg_pp', 'gradient_estimation', 'gradient_estimation_cfg_pp', 'er_sde', 'seeds_2', 'seeds_3', 'sa_solver', 'sa_solver_pece', 'ddim', 'uni_pc', 'uni_pc_bh2']",
         "['simple', 'sgm_uniform', 'karras', 'exponential', 'ddim_uniform', 'beta', 'normal', 'linear_quadratic', 'kl_optimal']",
         "INT",
         "STRING",
@@ -1378,7 +1685,7 @@
         "LATENT",
         "INT",
         "FLOAT",
-        "['euler', 'euler_cfg_pp', 'euler_ancestral', 'euler_ancestral_cfg_pp', 'heun', 'heunpp2', 'exp_heun_2_x0', 'exp_heun_2_x0_sde', 'dpm_2', 'dpm_2_ancestral', 'lms', 'dpm_fast', 'dpm_adaptive', 'dpmpp_2s_ancestral', 'dpmpp_2s_ancestral_cfg_pp', 'dpmpp_sde', 'dpmpp_sde_gpu', 'dpmpp_2m', 'dpmpp_2m_cfg_pp', 'dpmpp_2m_sde', 'dpmpp_2m_sde_gpu', 'dpmpp_2m_sde_heun', 'dpmpp_2m_sde_heun_gpu', 'dpmpp_3m_sde', 'dpmpp_3m_sde_gpu', 'ddpm', 'lcm', 'ipndm', 'ipndm_v', 'deis', 'res_multistep', 'res_multistep_cfg_pp', 'res_multistep_ancestral', 'res_multistep_ancestral_cfg_pp', 'gradient_estimation', 'gradient_estimation_cfg_pp', 'er_sde', 'seeds_2', 'seeds_3', 'sa_solver', 'sa_solver_pece', 'ddim', 'uni_pc', 'uni_pc_bh2']",
+        "['euler', 'euler_cfg_pp', 'euler_ancestral', 'euler_ancestral_cfg_pp', 'heun', 'heunpp2', 'exp_heun_2_x0', 'exp_heun_2_x0_sde', 'dpm_2', 'dpm_2_ancestral', 'lms', 'dpm_fast', 'dpm_adaptive', 'dpmpp_2s_ancestral', 'dpmpp_2s_ancestral_cfg_pp', 'dpmpp_sde', 'dpmpp_sde_gpu', 'dpmpp_2m', 'dpmpp_2m_cfg_pp', 'dpmpp_2m_sde', 'dpmpp_2m_sde_gpu', 'dpmpp_2m_sde_heun', 'dpmpp_2m_sde_heun_gpu', 'dpmpp_3m_sde', 'dpmpp_3m_sde_gpu', 'ddpm', 'lcm', 'ipndm', 'ipndm_v', 'deis', 'cfgpp_ud10_ab', 'res_multistep', 'res_multistep_cfg_pp', 'res_multistep_ancestral', 'res_multistep_ancestral_cfg_pp', 'gradient_estimation', 'gradient_estimation_cfg_pp', 'er_sde', 'seeds_2', 'seeds_3', 'sa_solver', 'sa_solver_pece', 'ddim', 'uni_pc', 'uni_pc_bh2']",
         "['simple', 'sgm_uniform', 'karras', 'exponential', 'ddim_uniform', 'beta', 'normal', 'linear_quadratic', 'kl_optimal']",
         "INT",
         "STRING",
@@ -1422,7 +1729,7 @@
         "LATENT",
         "INT",
         "FLOAT",
-        "['euler', 'euler_cfg_pp', 'euler_ancestral', 'euler_ancestral_cfg_pp', 'heun', 'heunpp2', 'exp_heun_2_x0', 'exp_heun_2_x0_sde', 'dpm_2', 'dpm_2_ancestral', 'lms', 'dpm_fast', 'dpm_adaptive', 'dpmpp_2s_ancestral', 'dpmpp_2s_ancestral_cfg_pp', 'dpmpp_sde', 'dpmpp_sde_gpu', 'dpmpp_2m', 'dpmpp_2m_cfg_pp', 'dpmpp_2m_sde', 'dpmpp_2m_sde_gpu', 'dpmpp_2m_sde_heun', 'dpmpp_2m_sde_heun_gpu', 'dpmpp_3m_sde', 'dpmpp_3m_sde_gpu', 'ddpm', 'lcm', 'ipndm', 'ipndm_v', 'deis', 'res_multistep', 'res_multistep_cfg_pp', 'res_multistep_ancestral', 'res_multistep_ancestral_cfg_pp', 'gradient_estimation', 'gradient_estimation_cfg_pp', 'er_sde', 'seeds_2', 'seeds_3', 'sa_solver', 'sa_solver_pece', 'ddim', 'uni_pc', 'uni_pc_bh2']",
+        "['euler', 'euler_cfg_pp', 'euler_ancestral', 'euler_ancestral_cfg_pp', 'heun', 'heunpp2', 'exp_heun_2_x0', 'exp_heun_2_x0_sde', 'dpm_2', 'dpm_2_ancestral', 'lms', 'dpm_fast', 'dpm_adaptive', 'dpmpp_2s_ancestral', 'dpmpp_2s_ancestral_cfg_pp', 'dpmpp_sde', 'dpmpp_sde_gpu', 'dpmpp_2m', 'dpmpp_2m_cfg_pp', 'dpmpp_2m_sde', 'dpmpp_2m_sde_gpu', 'dpmpp_2m_sde_heun', 'dpmpp_2m_sde_heun_gpu', 'dpmpp_3m_sde', 'dpmpp_3m_sde_gpu', 'ddpm', 'lcm', 'ipndm', 'ipndm_v', 'deis', 'cfgpp_ud10_ab', 'res_multistep', 'res_multistep_cfg_pp', 'res_multistep_ancestral', 'res_multistep_ancestral_cfg_pp', 'gradient_estimation', 'gradient_estimation_cfg_pp', 'er_sde', 'seeds_2', 'seeds_3', 'sa_solver', 'sa_solver_pece', 'ddim', 'uni_pc', 'uni_pc_bh2']",
         "['simple', 'sgm_uniform', 'karras', 'exponential', 'ddim_uniform', 'beta', 'normal', 'linear_quadratic', 'kl_optimal']",
         "INT",
         "STRING",
@@ -1488,10 +1795,41 @@
         "LATENT",
         "INT",
         "FLOAT",
-        "['euler', 'euler_cfg_pp', 'euler_ancestral', 'euler_ancestral_cfg_pp', 'heun', 'heunpp2', 'exp_heun_2_x0', 'exp_heun_2_x0_sde', 'dpm_2', 'dpm_2_ancestral', 'lms', 'dpm_fast', 'dpm_adaptive', 'dpmpp_2s_ancestral', 'dpmpp_2s_ancestral_cfg_pp', 'dpmpp_sde', 'dpmpp_sde_gpu', 'dpmpp_2m', 'dpmpp_2m_cfg_pp', 'dpmpp_2m_sde', 'dpmpp_2m_sde_gpu', 'dpmpp_2m_sde_heun', 'dpmpp_2m_sde_heun_gpu', 'dpmpp_3m_sde', 'dpmpp_3m_sde_gpu', 'ddpm', 'lcm', 'ipndm', 'ipndm_v', 'deis', 'res_multistep', 'res_multistep_cfg_pp', 'res_multistep_ancestral', 'res_multistep_ancestral_cfg_pp', 'gradient_estimation', 'gradient_estimation_cfg_pp', 'er_sde', 'seeds_2', 'seeds_3', 'sa_solver', 'sa_solver_pece', 'ddim', 'uni_pc', 'uni_pc_bh2']",
+        "['euler', 'euler_cfg_pp', 'euler_ancestral', 'euler_ancestral_cfg_pp', 'heun', 'heunpp2', 'exp_heun_2_x0', 'exp_heun_2_x0_sde', 'dpm_2', 'dpm_2_ancestral', 'lms', 'dpm_fast', 'dpm_adaptive', 'dpmpp_2s_ancestral', 'dpmpp_2s_ancestral_cfg_pp', 'dpmpp_sde', 'dpmpp_sde_gpu', 'dpmpp_2m', 'dpmpp_2m_cfg_pp', 'dpmpp_2m_sde', 'dpmpp_2m_sde_gpu', 'dpmpp_2m_sde_heun', 'dpmpp_2m_sde_heun_gpu', 'dpmpp_3m_sde', 'dpmpp_3m_sde_gpu', 'ddpm', 'lcm', 'ipndm', 'ipndm_v', 'deis', 'cfgpp_ud10_ab', 'res_multistep', 'res_multistep_cfg_pp', 'res_multistep_ancestral', 'res_multistep_ancestral_cfg_pp', 'gradient_estimation', 'gradient_estimation_cfg_pp', 'er_sde', 'seeds_2', 'seeds_3', 'sa_solver', 'sa_solver_pece', 'ddim', 'uni_pc', 'uni_pc_bh2']",
         "['simple', 'sgm_uniform', 'karras', 'exponential', 'ddim_uniform', 'beta', 'normal', 'linear_quadratic', 'kl_optimal']",
         "INT",
         "STRING",
+        "INT"
+      ]
+    },
+    "LoadVideoComponentsMXD": {
+      "category": "image/video",
+      "class": "LoadVideoComponentsMXD",
+      "display_name": "Load Video + Components MXD",
+      "function": "load",
+      "input_types": {
+        "required": {
+          "file": {
+            "config": {
+              "video_upload": true
+            },
+            "type": "COMBO"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "video",
+        "images",
+        "audio",
+        "fps",
+        "bit_depth"
+      ],
+      "return_types": [
+        "VIDEO",
+        "IMAGE",
+        "AUDIO",
+        "FLOAT",
         "INT"
       ]
     },

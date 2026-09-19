@@ -60,10 +60,59 @@ class MxdPowerLoraLoader:
     except (TypeError, ValueError):
       return float(default)
 
+  @classmethod
+  def VALIDATE_INPUTS(cls, input_types, **kwargs):  # pylint: disable=invalid-name
+    """Reject missing enabled LoRAs during prompt validation, before execution."""
+    clip_connected = "clip" in input_types
+    model_connected = "model" in input_types
+    lora_paths = None
+
+    for key, value in kwargs.items():
+      if not key.upper().startswith("LORA_"):
+        continue
+      if not isinstance(value, dict):
+        return f'{NODE_NAME}: malformed LoRA input "{key}" (expected object).'
+      if not all(field in value for field in ("on", "lora", "strength")):
+        if cls._coerce_bool(value.get("on"), default=False):
+          return f'{NODE_NAME}: malformed LoRA input "{key}" (missing fields).'
+        continue
+
+      strength_model = cls._coerce_float(value.get("strength"), default=0.0)
+      strength_clip = (
+        cls._coerce_float(value.get("strengthTwo"), default=strength_model)
+        if clip_connected
+        else 0.0
+      )
+      if not cls._coerce_bool(value.get("on"), default=False):
+        continue
+      if strength_model == 0.0 and strength_clip == 0.0:
+        continue
+
+      lora_name = str(value.get("lora") or "").strip()
+      if not lora_name:
+        return f'{NODE_NAME}: enabled LoRA slot "{key}" has an empty filename.'
+      if not model_connected:
+        return f'{NODE_NAME}: LoRA "{lora_name}" is enabled but no MODEL is connected.'
+
+      if lora_paths is None:
+        lora_paths = folder_paths.get_filename_list("loras")
+      if get_lora_by_filename(lora_name, lora_paths=lora_paths, log_node=None) is None:
+        return (
+          f'{NODE_NAME}: LoRA not found: "{lora_name}". '
+          "Choose an installed LoRA or turn this row off."
+        )
+
+    return True
+
   def _apply_lora_without_clip(self, model, lora, strength_model, strength_clip):
-    lora_path = folder_paths.get_full_path("loras", lora)
-    if not lora_path:
-      return model
+    # Match stock ComfyUI: missing file must hard-fail, not silently no-op.
+    get_path = getattr(folder_paths, "get_full_path_or_raise", None)
+    if get_path is not None:
+      lora_path = get_path("loras", lora)
+    else:
+      lora_path = folder_paths.get_full_path("loras", lora)
+      if not lora_path:
+        raise FileNotFoundError(f'LoRA not found: "{lora}"')
     loaded_lora = comfy.utils.load_torch_file(lora_path, safe_load=True)
     model, _ = comfy.sd.load_lora_for_models(model, None, loaded_lora, strength_model, strength_clip)
     return model
@@ -74,10 +123,12 @@ class MxdPowerLoraLoader:
       if not key.startswith("LORA_"):
         continue
       if not isinstance(value, dict):
-        log_node_warn(NODE_NAME, f'Skipping malformed LoRA input "{key}" (expected object).')
-        continue
+        # Disabled/empty UI slots can arrive weirdly — only soft-skip junk that is off/empty.
+        # Anything clearly toggled on must hard-fail like stock Loaders.
+        raise ValueError(f'{NODE_NAME}: malformed LoRA input "{key}" (expected object).')
       if not all(k in value for k in ("on", "lora", "strength")):
-        log_node_warn(NODE_NAME, f'Skipping malformed LoRA input "{key}" (missing fields).')
+        if self._coerce_bool(value.get("on"), default=False):
+          raise ValueError(f'{NODE_NAME}: malformed LoRA input "{key}" (missing fields).')
         continue
 
       strength_model = self._coerce_float(value.get("strength"), default=0.0)
@@ -90,22 +141,34 @@ class MxdPowerLoraLoader:
       else:
         strength_clip = self._coerce_float(strength_clip_raw, default=strength_model)
 
+      # Off / zero strength = intentionally unused slot (same as leaving a stock loader unused)
       if not self._coerce_bool(value.get("on"), default=False):
         continue
       if strength_model == 0.0 and strength_clip == 0.0:
         continue
 
-      lora = get_lora_by_filename(value["lora"], log_node=self.NAME)
-      if model is None or lora is None:
-        continue
+      lora_name = value.get("lora") or ""
+      if not str(lora_name).strip():
+        raise FileNotFoundError(f'{NODE_NAME}: enabled LoRA slot has empty filename.')
 
-      try:
-        if clip is None:
-          model = self._apply_lora_without_clip(model, lora, strength_model, strength_clip)
-        else:
-          model, clip = LoraLoader().load_lora(model, clip, lora, strength_model, strength_clip)
-      except Exception as exc:
-        log_node_warn(NODE_NAME, f'Failed to apply LoRA "{value.get("lora")}" ({exc}). Skipping.')
+      if model is None:
+        raise RuntimeError(
+          f'{NODE_NAME}: LoRA "{lora_name}" is enabled but no MODEL is connected.'
+        )
+
+      lora = get_lora_by_filename(lora_name, log_node=self.NAME)
+      if lora is None:
+        # Stock Load LoRA / Checkpoint behavior: missing file aborts the prompt.
+        raise FileNotFoundError(
+          f'{NODE_NAME}: LoRA not found: "{lora_name}". '
+          f'Fix the slot or turn it off — refusing to continue silently.'
+        )
+
+      # Do not swallow apply errors — same as stock LoraLoader.
+      if clip is None:
+        model = self._apply_lora_without_clip(model, lora, strength_model, strength_clip)
+      else:
+        model, clip = LoraLoader().load_lora(model, clip, lora, strength_model, strength_clip)
 
     return (model, clip)
 

@@ -30,7 +30,6 @@ enforces this.
     `mxd_dialog_info.js` (paths derive from its `import.meta.url`).
   - `mxd_api.js` / `mxd_model_info_service.js` / `mxd_model_row_widget.js` /
     `mxd_smart_search.js` / `mxd_menu.js` / `mxd_svgs.js`.
-
 - **`nodes/`** — one extension file per node/feature. Each registers via
   `app.registerExtension` and targets Python node names in
   `beforeRegisterNodeDef` (names must match `NODE_CLASS_MAPPINGS` keys).
@@ -41,8 +40,12 @@ enforces this.
     that work. Serialization shapes are frozen (see the CLAUDE.md contract).
   - `better_combos.js` — folder-tree/grid combo display for the MXD latent
     loaders (adapted from pysssss; scoped to MXD nodes only; keeps its BOM).
-  - `run_folder.js` — wraps `app.queuePrompt` for batch folder runs; uses
-    `/mxd/latents/files`.
+  - `run_folder.js` — wraps `app.queuePrompt` for multi-run loops driven by
+    the `run_folder` toggle on folder loaders (uses `/mxd/latents/files`).
+    All active nodes advance together in one pass.
+    A toggled-on node only drives the loop if it would actually execute:
+    not muted/bypassed, and wired forward into an output node. Otherwise a
+    stray disconnected loader would multiply the queue for nothing.
   - `prompt_spellcheck.js` — right-click spelling suggestions in any prompt
     textarea, using the vendored dictionary in `vendor/spellcheck/`. Also
     ships standalone as the Spell-Check-MXD pack; both copies claim the shared

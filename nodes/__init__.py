@@ -21,6 +21,7 @@ for _name in (
     "latents",
     "resolution",
     "prompts",
+    "krea",
     "masks",
     "media_io",
     "comparers",
