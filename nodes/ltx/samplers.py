@@ -9,8 +9,8 @@ workflow (LTX-2.3_T2V_I2V_Two_Stage_Distilled.json). Custom Sigmas mode accepts
 a manual descending schedule ending in 0.0 for experimentation.
 
 These nodes used to carry an `ltx_preview` toggle that attached a taeltx
-previewer. Live previews now live in the standalone Live-Preview-MXD pack,
-which previews any sampler automatically with nothing to wire or toggle.
+previewer. Live previews are now an optional global MaxedOut setting, which
+previews any sampler automatically with nothing to wire into the workflow.
 """
 from __future__ import annotations
 import re

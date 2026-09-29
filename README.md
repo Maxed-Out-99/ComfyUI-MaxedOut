@@ -20,6 +20,7 @@ My main goal is to make existing nodes easier to use in the day-to-day especiall
 - Time-saving presets for common resolutions.
 - Image/Video Comparer nodes with easy save.
 - Advanced Wan 2.2 nodes for my Patreon exclusive workflows.
+- Optional animated sampler previews in a dockable panel.
 
 ## Install
 
@@ -48,6 +49,18 @@ Set it any one of these ways:
 
 Leave all three unset and nothing changes -- this is entirely opt-in.
 
+## Live Sampling Previews
+
+MaxedOut can animate image and video latents while any KSampler-family node is
+running, then keep the finished preview in a docked panel. This is opt-in:
+open ComfyUI Settings → `MXD` → `Sampling` and enable **Display animated
+previews when sampling**. It is off by default, so installing MaxedOut adds no
+preview decoding or saving overhead until you enable it.
+
+LTX 2.3 is supported through the tiny taeltx decoder. The model is downloaded
+to the configured VAE folder only when the feature is enabled and an LTX 2.3
+preview actually needs it.
+
 ## Featured Nodes
 
 | Node | What it does |
@@ -68,7 +81,6 @@ only what you want. Nothing below is required.
 
 | Pack | What it is |
 |---|---|
-| [Live-Preview-MXD](https://github.com/Maxed-Out-99/Live-Preview-MXD) | Watch video generations animate while they render, in a dockable panel. Also adds LTX 2.3 previews, which core can't do at all. |
 | [Prompt-Library-MXD](https://github.com/Maxed-Out-99/Prompt-Library-MXD) | Save named prompt snippets by category and pull them in by name, or let a wildcard pick one at random. |
 | [Spell-Check-MXD](https://github.com/Maxed-Out-99/Spell-Check-MXD) | The prompt spellchecker on its own, if you don't want the rest of this pack. Safe to install alongside — it won't double up. |
 | [Smart-Model-Loaders-MXD](https://github.com/Maxed-Out-99/Smart-Model-Loaders-MXD) | Loader nodes that accept safetensors or GGUF in the same slot. Only needed if you actually use GGUF quants. |
@@ -101,8 +113,8 @@ If you star this repo, definitely consider starring theirs too.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Third-party code keeps its original license; see
-[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) and the licenses carried
-alongside vendored web code.
+GNU General Public License v3.0 — see [LICENSE](LICENSE). Third-party notices
+and license details are recorded in
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) and alongside vendored code.
 
 This pack has no pip dependencies — everything it needs ships with ComfyUI.

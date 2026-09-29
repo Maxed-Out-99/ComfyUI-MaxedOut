@@ -1,7 +1,7 @@
 """LTX Video node package: latent sizing and the two-stage distilled samplers.
 
-Live previews during sampling (including the taeltx decoder LTX 2.3 needs, since
-core ships none) moved out to the standalone Live-Preview-MXD pack.
+The optional automatic taeltx preview support lives in preview.py and is loaded
+by system.live_preview only when its backend hook needs the LTX 2.3 fallback.
 """
 import importlib
 

@@ -328,16 +328,9 @@ class ResolutionSelectorMXD:
         }
 
     def calculate(self, aspect_ratio, megapixels, vertical, multiple=8) -> tuple:
-        w_ratio, h_ratio = self.ASPECT_RATIOS[aspect_ratio]
-        total_pixels = megapixels * 1024 * 1024
-        scale = math.sqrt(total_pixels / (w_ratio * h_ratio))
-        width = round(w_ratio * scale / multiple) * multiple
-        height = round(h_ratio * scale / multiple) * multiple
-
-        if vertical:
-            width, height = height, width
-
-        return (width, height)
+        return ResolutionSelectorEmptyLatentImage.dimensions(
+            aspect_ratio, megapixels, vertical, multiple
+        )
 ########################################################################################################################
 
 NODE_CLASS_MAPPINGS = {

@@ -139,7 +139,18 @@ def _import_pack(comfy_root):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             if getattr(server.PromptServer, "instance", None) is None:
-                server.PromptServer(loop)
+                # Newer cores require the asset manager that main.py normally
+                # supplies. Use core's disabled/enabled implementation rather
+                # than a hand-written stub so PromptServer initialization stays
+                # representative as its asset integration evolves.
+                import inspect
+
+                if "asset_manager" in inspect.signature(server.PromptServer).parameters:
+                    from app.assets.manager import default_asset_manager
+
+                    server.PromptServer(loop, default_asset_manager())
+                else:
+                    server.PromptServer(loop)
             break
         except ModuleNotFoundError as e:
             _stub_module(e.name)

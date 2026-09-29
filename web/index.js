@@ -29,3 +29,5 @@ import './nodes/run_folder.js';
 import './nodes/model_storage_settings.js';
 import './nodes/checkpoint_loader.js';
 import './nodes/prompt_spellcheck.js';
+import './nodes/video_preview.js';
+import './nodes/live_preview_panel.js';

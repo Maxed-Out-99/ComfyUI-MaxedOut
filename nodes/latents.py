@@ -366,16 +366,24 @@ class ResolutionSelectorEmptyLatentImage:
     OUTPUT_TOOLTIPS = ("The empty latent image batch.",)
     FUNCTION = "generate"
 
+    @classmethod
+    def dimensions(cls, aspect_ratio, megapixels, vertical, multiple=8) -> tuple[int, int]:
+        w_ratio, h_ratio = cls.ASPECT_RATIOS[aspect_ratio]
+        if aspect_ratio == "Widescreen (16:9)" and megapixels == 2.0:
+            # The common 2 MP widescreen size is 1080p. Both sides are already
+            # multiples of 8, so preserve the exact resolution at the default.
+            width = round(1920 / multiple) * multiple
+            height = round(1080 / multiple) * multiple
+        else:
+            total_pixels = megapixels * 1024 * 1024
+            scale = math.sqrt(total_pixels / (w_ratio * h_ratio))
+            width = round(w_ratio * scale / multiple) * multiple
+            height = round(h_ratio * scale / multiple) * multiple
+
+        return (height, width) if vertical else (width, height)
+
     def generate(self, aspect_ratio, megapixels, vertical, batch_size=1, multiple=8) -> tuple:
-        w_ratio, h_ratio = self.ASPECT_RATIOS[aspect_ratio]
-        total_pixels = megapixels * 1024 * 1024
-        scale = math.sqrt(total_pixels / (w_ratio * h_ratio))
-        width = round(w_ratio * scale / multiple) * multiple
-        height = round(h_ratio * scale / multiple) * multiple
-
-        if vertical:
-            width, height = height, width
-
+        width, height = self.dimensions(aspect_ratio, megapixels, vertical, multiple)
         latent = torch.zeros([batch_size, 4, height // 8, width // 8], device=self.device)
         return ({"samples": latent},)
 

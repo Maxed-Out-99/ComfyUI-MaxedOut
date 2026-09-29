@@ -1,5 +1,19 @@
 # Third-party licenses
 
+## ComfyUI-KJNodes and ComfyUI-VideoHelperSuite
+
+The animated latent-preview implementation in `nodes/ltx/preview.py` and
+`system/live_preview.py` includes logic adapted from
+[ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes) by Kijai and
+[ComfyUI-VideoHelperSuite](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite)
+by Kosinkadink. Both upstream projects are licensed under the GNU General
+Public License, Version 3. The adapted code was modified by Maxed Out in 2026
+for automatic LTX 2.3 fallback decoding, private preview events, persistent
+preview output, and integration with ComfyUI-MaxedOut.
+
+ComfyUI-MaxedOut is distributed under the GNU General Public License, Version
+3. The complete license text is included in the repository-root `LICENSE`.
+
 ## ComfyUI-Krea2Edit
 
 `nodes/krea2_edit_core.py` is adapted from

@@ -37,7 +37,7 @@ enforces this.
     header row, single-strength row widget. `power_lora_loader.js` adds the
     dual model/clip strength mode. Rows are canvas-drawn in both classic and
     Nodes 2.0; `mxd_nodes2.js` supplies the width and repaint shims that make
-    that work. Serialization shapes are frozen (see the CLAUDE.md contract).
+    that work. Serialization shapes are frozen (see the AGENTS.md contract).
   - `better_combos.js` — folder-tree/grid combo display for the MXD latent
     loaders (adapted from pysssss; scoped to MXD nodes only; keeps its BOM).
   - `run_folder.js` — wraps `app.queuePrompt` for multi-run loops driven by
@@ -51,6 +51,10 @@ enforces this.
     ships standalone as the Spell-Check-MXD pack; both copies claim the shared
     `window.__mxdPromptSpellcheckActive` flag so installing both attaches it
     once. If you rename that flag, rename it in BOTH repos.
+  - `video_preview.js` / `live_preview_panel.js` — disabled-by-default animated
+    sampler previews and the persistent docked preview panel. The frontend
+    writes per-queue flags consumed by `system/live_preview.py`; LTX 2.3 falls
+    back to the tiny decoder in `nodes/ltx/preview.py`.
 
 - **`vendor/zip_loader/`** — vendored drag-drop zip workflow importer +
   bundled `jszip.min.js` (never lint/format the min file).

@@ -23,6 +23,7 @@ for _name in (
     "nodes",
     "loraloader_mxd",
     "system.model_paths",
+    "system.live_preview",
 ):
     _mod = _safe_import(_name)
     _class_map, _display_map = _get_mappings(_mod)
