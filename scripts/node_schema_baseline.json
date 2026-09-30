@@ -796,7 +796,7 @@
         "required": {
           "mask_color": {
             "config": {
-              "default": "255, 255, 255",
+              "default": "0, 0, 0",
               "tooltip": "RGB/RGBA CSV, hex, or color name."
             },
             "type": "STRING"
@@ -809,13 +809,6 @@
               "step": 0.01
             },
             "type": "FLOAT"
-          },
-          "pass_through": {
-            "config": {
-              "default": true,
-              "tooltip": "Legacy option. This node now always returns the composite without creating a preview."
-            },
-            "type": "BOOLEAN"
           }
         }
       },

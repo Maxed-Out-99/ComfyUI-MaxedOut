@@ -509,8 +509,7 @@ class ImageAndMaskPreviewMXD(SaveImage):
         return {
             "required": {
                 "mask_opacity": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
-                "mask_color": ("STRING", {"default": "255, 255, 255", "tooltip": "RGB/RGBA CSV, hex, or color name."}),
-                "pass_through": ("BOOLEAN", {"default": True, "tooltip": "Legacy option. This node now always returns the composite without creating a preview."}),
+                "mask_color": ("STRING", {"default": "0, 0, 0", "tooltip": "RGB/RGBA CSV, hex, or color name."}),
             },
             "optional": {
                 "image": ("IMAGE",),
@@ -519,7 +518,7 @@ class ImageAndMaskPreviewMXD(SaveImage):
             "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
         }
 
-    def _build_composite(self, image=None, mask=None, mask_opacity=1.0, mask_color="255, 255, 255"):
+    def _build_composite(self, image=None, mask=None, mask_opacity=1.0, mask_color="0, 0, 0"):
         image = _mxd_image_batch(image)
 
         if image is None and mask is None:
@@ -549,7 +548,7 @@ class ImageAndMaskPreviewMXD(SaveImage):
         alpha = alpha.unsqueeze(-1)
         return (image * (1.0 - alpha) + rgb * alpha).clamp(0.0, 1.0)
 
-    def execute(self, mask_opacity, mask_color, pass_through, filename_prefix="ComfyUI", image=None, mask=None, prompt=None, extra_pnginfo=None):
+    def execute(self, mask_opacity, mask_color, filename_prefix="ComfyUI", image=None, mask=None, prompt=None, extra_pnginfo=None):
         composite = self._build_composite(image=image, mask=mask, mask_opacity=mask_opacity, mask_color=mask_color)
         return (composite,)
 
