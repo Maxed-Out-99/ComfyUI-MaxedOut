@@ -1,6 +1,7 @@
 """Image scaling to model-safe megapixel targets + resolution matchers.
 
 Registered nodes:
+  DownscaleImageToTotalPixelsMXD               Downscale Image MXD
   Image Scale To Total Pixels (SDXL Safe)       Scale SDXL Image MXD
   Flux Image Scale To Total Pixels (Flux Safe)  Scale Flux Image MXD
   FluxResolutionMatcher                          Flux Resolution Matcher MXD
@@ -10,6 +11,50 @@ Registered nodes:
 from __future__ import annotations
 import math, comfy, comfy.utils, torch
 from .latents import SdxlEmptyLatentImage, ResolutionSelectorEmptyLatentImage
+
+########################################################################################################################
+class DownscaleImageToTotalPixelsMXD:
+    DESCRIPTION = """Reduce images toward a megapixel target without ever increasing either dimension. Aligns width and height to resolution_steps, including images already below the target. Images with either dimension smaller than one step pass through unchanged."""
+    upscale_methods = ["nearest-exact", "bilinear", "area", "bicubic", "lanczos"]
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {
+            "image": ("IMAGE",),
+            "upscale_method": (cls.upscale_methods, {"default": "lanczos"}),
+            "megapixels": ("FLOAT", {
+                "default": 1.0, "min": 0.01, "max": 16.0, "step": 0.01,
+                "tooltip": "Downscale toward this target; smaller images are only aligned to resolution_steps. Uses 1024 × 1024 pixels per MP, like core.",
+            }),
+            "resolution_steps": ("INT", {
+                "default": 1, "min": 1, "max": 256, "advanced": True,
+                "tooltip": "Align both dimensions to this multiple without enlarging. Rounding may put the result slightly above the megapixel target.",
+            }),
+        }}
+
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "downscale"
+    CATEGORY = "MXD/Upscaling"
+
+    def downscale(self, image, upscale_method, megapixels, resolution_steps=1):
+        _, height, width, _ = image.shape
+        # No positive aligned size fits when a source dimension is below a step.
+        if min(height, width) < resolution_steps:
+            return (image,)
+
+        scale = min(1.0, math.sqrt(megapixels * 1024 * 1024 / (width * height)))
+
+        def aligned_size(size):
+            nearest = max(1, round(size * scale / resolution_steps))
+            return min(nearest, size // resolution_steps) * resolution_steps
+
+        new_width, new_height = aligned_size(width), aligned_size(height)
+        if (new_width, new_height) == (width, height):
+            return (image,)
+        samples = comfy.utils.common_upscale(
+            image.movedim(-1, 1), new_width, new_height, upscale_method, "disabled"
+        )
+        return (samples.movedim(1, -1),)
 
 ########################################################################################################################
 # Image Scale To Total Pixels (SDXL Safe)
@@ -334,6 +379,7 @@ class ResolutionSelectorMXD:
 ########################################################################################################################
 
 NODE_CLASS_MAPPINGS = {
+    "DownscaleImageToTotalPixelsMXD": DownscaleImageToTotalPixelsMXD,
     "Image Scale To Total Pixels (SDXL Safe)": SDXLImageScaleToTotalPixelsSafe,
     "Flux Image Scale To Total Pixels (Flux Safe)": FluxImageScaleToTotalPixelsSafe,
     "FluxResolutionMatcher": FluxResolutionMatcher,
@@ -342,6 +388,7 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
+    "DownscaleImageToTotalPixelsMXD": "Downscale Image MXD",
     "Image Scale To Total Pixels (SDXL Safe)": "Scale SDXL Image MXD",
     "Flux Image Scale To Total Pixels (Flux Safe)": "Scale Flux Image MXD",
     "FluxResolutionMatcher": "Flux Resolution Matcher MXD",

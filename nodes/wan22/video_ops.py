@@ -23,6 +23,7 @@ import torch
 
 import folder_paths
 import comfy.model_management
+from comfy.utils import ProgressBar
 from comfy.cli_args import args
 
 # Comfy API
@@ -47,6 +48,29 @@ except Exception as _e:
 from .latent_io import _merge_prior_workflow_into_current
 
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".avi"}
+
+
+class _VideoEncodingFrames:
+    """Report frames consumed by core's encoder without copying the image batch.
+
+    Used only for saving: the returned VIDEO retains its original image tensor.
+    Core's VideoFromComponents encoder reads shape and iterates these frames.
+    """
+
+    def __init__(self, images, progress):
+        self.images = images
+        self.shape = images.shape
+        self.progress = progress
+
+    def __len__(self):
+        return len(self.images)
+
+    def __iter__(self):
+        for frame in self.images:
+            comfy.model_management.throw_exception_if_processing_interrupted()
+            yield frame
+            # Resuming the iterator means core has encoded/muxed this frame.
+            self.progress.update(1)
 
 
 def _frame_window(total, count, offset, mode):
@@ -684,13 +708,26 @@ if HAVE_COMFY_API:
                     saved_metadata = metadata
 
             file = f"{filename}_{counter:05}_.{VideoContainer.get_extension(format)}"
-            video.save_to(
+            # Reserve the last step for encoder flush, audio and container close.
+            # Keep the progress adapter out of the VIDEO output and downstream nodes.
+            progress = ProgressBar(len(images) + 1)
+            progress.update_absolute(0)
+            saving_video = VideoFromComponents(
+                VideoComponents(
+                    images=_VideoEncodingFrames(images, progress),
+                    audio=audio,
+                    frame_rate=Fraction(fps),
+                ),
+                bit_depth=bit_depth,
+            )
+            saving_video.save_to(
                 os.path.join(full_output_folder, file),
                 format=VideoContainer(format),
                 codec=codec_name,
                 metadata=saved_metadata,
                 crf=encoding.get("crf"),
             )
+            progress.update_absolute(progress.total)
 
             return io.NodeOutput(
                 video,

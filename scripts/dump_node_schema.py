@@ -49,7 +49,7 @@ def _norm_combo(values, force_dynamic=False):
         and not any(_PATHY.search(v) for v in vals)
     ):
         return {"combo": vals}
-    return {"combo": "nonempty" if vals else "empty", "dynamic": True}
+    return {"combo": "dynamic", "dynamic": True}
 
 
 def _norm(obj, in_type_position=False):
@@ -197,7 +197,7 @@ def dump(comfy_root, out_path):
     errors = [k for k, v in result["nodes"].items() if "__error__" in v.get("input_types", {})]
     if errors:
         print(f"[dump_node_schema] WARNING: INPUT_TYPES failed for: {errors}")
-    return 0
+    return 1 if errors or not class_map else 0
 
 
 def compare(a_path, b_path):

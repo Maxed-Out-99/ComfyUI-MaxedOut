@@ -24,6 +24,7 @@ for _name in (
     "krea",
     "masks",
     "media_io",
+    "gifs",
     "comparers",
     "checkpoints",
     "wan22",

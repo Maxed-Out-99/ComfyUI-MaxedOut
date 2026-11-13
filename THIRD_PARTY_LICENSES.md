@@ -22,6 +22,10 @@ Locke, revision `86f886dac23013d88996e3a2e99093ba44d322fb`. It was modified to
 extract only the implementation used by the Maxed Out nodes. The upstream
 project is licensed under the Apache License, Version 2.0.
 
+V2 reference placement and reference pre-encoding were adapted from revision
+`13ef60f20828949becada815d3cbc371eb5ccaab`, retaining the MXD per-image controls
+and latent output.
+
 The complete license text is included at
 `third_party/ComfyUI-Krea2Edit/LICENSE`.
 
@@ -36,3 +40,18 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+## Set/Get frontend nodes
+
+`web/nodes/mxd_set_get.js` adapts `web/js/setgetnodes.js` from
+[ComfyUI-KJNodes](https://github.com/kijai/ComfyUI-KJNodes), licensed under
+GPL-3.0 (full text in the repository-root `LICENSE`). Upstream credits
+[diffus3's SetGet](https://github.com/diffus3/ComfyUI-extensions) as its origin.
+The installed source snapshot used on 2026-11-08 has SHA-256
+`82d4dbcf522c23679e28132a59d907a33bc4c580e1c787afa713e3cae1e0c59d`.
+
+MXD adds provider detection and a singleton guard, places fallback nodes in
+MXD/Utilities, updates package metadata, and makes the add-node commands
+independent of KJ's other modules. KJ's enabled Set/Get script takes precedence;
+the fallback does not register nodes, settings, menus or hooks alongside it.
+The original SetNode/GetNode keys and KJ settings IDs are retained for compatibility.

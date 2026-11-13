@@ -31,3 +31,4 @@ import './nodes/checkpoint_loader.js';
 import './nodes/prompt_spellcheck.js';
 import './nodes/video_preview.js';
 import './nodes/live_preview_panel.js';
+import './nodes/mxd_set_get.js';

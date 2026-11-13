@@ -1,5 +1,5 @@
 {
-  "node_count": 70,
+  "node_count": 80,
   "nodes": {
     "BboxDetectorCombinedBatchMXD": {
       "category": "MXD/Detector",
@@ -175,7 +175,8 @@
                 "auto",
                 "mp4",
                 "mkv",
-                "webm"
+                "webm",
+                "mov"
               ],
               "tooltip": "The format to save the video as."
             },
@@ -227,6 +228,58 @@
       "return_names": [
         "image"
       ],
+      "return_types": [
+        "IMAGE"
+      ]
+    },
+    "DownscaleImageToTotalPixelsMXD": {
+      "category": "MXD/Upscaling",
+      "class": "DownscaleImageToTotalPixelsMXD",
+      "display_name": "Downscale Image MXD",
+      "function": "downscale",
+      "input_types": {
+        "required": {
+          "image": {
+            "type": "IMAGE"
+          },
+          "megapixels": {
+            "config": {
+              "default": 1.0,
+              "max": 16.0,
+              "min": 0.01,
+              "step": 0.01,
+              "tooltip": "Downscale toward this target; smaller images are only aligned to resolution_steps. Uses 1024 × 1024 pixels per MP, like core."
+            },
+            "type": "FLOAT"
+          },
+          "resolution_steps": {
+            "config": {
+              "advanced": true,
+              "default": 1,
+              "max": 256,
+              "min": 1,
+              "tooltip": "Align both dimensions to this multiple without enlarging. Rounding may put the result slightly above the megapixel target."
+            },
+            "type": "INT"
+          },
+          "upscale_method": {
+            "config": {
+              "default": "lanczos"
+            },
+            "type": {
+              "combo": [
+                "nearest-exact",
+                "bilinear",
+                "area",
+                "bicubic",
+                "lanczos"
+              ]
+            }
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": null,
       "return_types": [
         "IMAGE"
       ]
@@ -620,6 +673,75 @@
         "IMAGE"
       ]
     },
+    "GIF Stitch MXD": {
+      "category": "Maxed Out/GIF",
+      "class": "GifStitchMXD",
+      "display_name": "GIF Stitch MXD",
+      "function": "stitch",
+      "input_types": {
+        "optional": {
+          "gif2": {
+            "type": "MXD_GIF"
+          }
+        },
+        "required": {
+          "direction": {
+            "config": {
+              "default": "right"
+            },
+            "type": {
+              "combo": [
+                "right",
+                "down",
+                "left",
+                "up"
+              ]
+            }
+          },
+          "gif1": {
+            "type": "MXD_GIF"
+          },
+          "match_image_size": {
+            "config": {
+              "default": true
+            },
+            "type": "BOOLEAN"
+          },
+          "spacing_color": {
+            "config": {
+              "default": "white"
+            },
+            "type": {
+              "combo": [
+                "white",
+                "black",
+                "red",
+                "green",
+                "blue"
+              ]
+            }
+          },
+          "spacing_width": {
+            "config": {
+              "default": 0,
+              "max": 1024,
+              "min": 0,
+              "step": 2
+            },
+            "type": "INT"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "gif",
+        "images"
+      ],
+      "return_types": [
+        "MXD_GIF",
+        "IMAGE"
+      ]
+    },
     "Get Latent Size": {
       "category": "MXD/Latent",
       "class": "GetLatentSizeMXD",
@@ -820,10 +942,110 @@
         "IMAGE"
       ]
     },
+    "Krea2EditAdvancedMXD": {
+      "category": "MXD/Krea",
+      "class": "Krea2EditAdvancedMXD",
+      "display_name": "Krea2 2 Img Edit Adv MXD",
+      "function": "patch",
+      "input_types": {
+        "optional": {
+          "image_1_boost": {
+            "config": {
+              "default": 1.0,
+              "max": 1000.0,
+              "min": 0.0,
+              "round": 0.001,
+              "step": 0.01,
+              "tooltip": "Attention strength for Image 1. 1.0 = unchanged."
+            },
+            "type": "FLOAT"
+          },
+          "image_1_boost_mask": {
+            "config": {
+              "tooltip": "Limit the boost for Image 1 to white areas. This is not an edit or inpainting mask."
+            },
+            "type": "MASK"
+          },
+          "image_1_position": {
+            "config": {
+              "default": "Base",
+              "tooltip": "Base: follow this image's layout and framing. Ref: use its appearance with freer positioning. This does not change which image supplies source_latent."
+            },
+            "type": {
+              "combo": [
+                "Base",
+                "Ref"
+              ]
+            }
+          },
+          "image_2_boost": {
+            "config": {
+              "default": 2.0,
+              "max": 1000.0,
+              "min": 0.0,
+              "round": 0.001,
+              "step": 0.01,
+              "tooltip": "Attention strength for Image 2. 1.0 = unchanged."
+            },
+            "type": "FLOAT"
+          },
+          "image_2_boost_mask": {
+            "config": {
+              "tooltip": "Limit the boost for Image 2 to white areas. This is not an edit or inpainting mask."
+            },
+            "type": "MASK"
+          },
+          "image_2_position": {
+            "config": {
+              "default": "Ref",
+              "tooltip": "Base: follow this image's layout and framing. Ref: use its appearance with freer positioning. This does not change which image supplies source_latent."
+            },
+            "type": {
+              "combo": [
+                "Base",
+                "Ref"
+              ]
+            }
+          }
+        },
+        "required": {
+          "image_1": {
+            "config": {
+              "tooltip": "Primary reference image, usually the scene or image to edit."
+            },
+            "type": "IMAGE"
+          },
+          "image_2": {
+            "config": {
+              "tooltip": "Optional second reference, usually a subject to place into Image 1."
+            },
+            "type": "IMAGE"
+          },
+          "model": {
+            "type": "MODEL"
+          },
+          "vae": {
+            "config": {
+              "tooltip": "Required. VAE used to encode the reference images."
+            },
+            "type": "VAE"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "model",
+        "source_latent"
+      ],
+      "return_types": [
+        "MODEL",
+        "LATENT"
+      ]
+    },
     "Krea2EditGroundedEncodeMXD": {
       "category": "MXD/Krea",
       "class": "Krea2EditGroundedEncodeMXD",
-      "display_name": "Krea2 Edit MXD",
+      "display_name": "Krea2 Edit Prompt MXD",
       "function": "encode",
       "input_types": {
         "optional": {
@@ -940,6 +1162,250 @@
       "return_types": [
         "MODEL",
         "LATENT"
+      ]
+    },
+    "Krea2ImgEditAdvMXD": {
+      "category": "MXD/Krea",
+      "class": "Krea2ImgEditAdvMXD",
+      "display_name": "Krea2 Img Edit Adv MXD",
+      "function": "patch",
+      "input_types": {
+        "optional": {
+          "boost": {
+            "config": {
+              "default": 1.0,
+              "max": 1000.0,
+              "min": 0.0,
+              "round": 0.001,
+              "step": 0.01,
+              "tooltip": "Attention strength for the image. 1.0 = unchanged."
+            },
+            "type": "FLOAT"
+          },
+          "boost_mask": {
+            "config": {
+              "tooltip": "Limit the boost for the image to white areas. This is not an edit or inpainting mask."
+            },
+            "type": "MASK"
+          },
+          "position": {
+            "config": {
+              "default": "Base",
+              "tooltip": "Base: follow this image's layout and framing. Ref: use its appearance with freer positioning. This does not change which image supplies source_latent."
+            },
+            "type": {
+              "combo": [
+                "Base",
+                "Ref"
+              ]
+            }
+          }
+        },
+        "required": {
+          "image": {
+            "config": {
+              "tooltip": "The image to edit; supplies source_latent."
+            },
+            "type": "IMAGE"
+          },
+          "model": {
+            "type": "MODEL"
+          },
+          "vae": {
+            "config": {
+              "tooltip": "Required. VAE used to encode the reference images."
+            },
+            "type": "VAE"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "model",
+        "source_latent"
+      ],
+      "return_types": [
+        "MODEL",
+        "LATENT"
+      ]
+    },
+    "Krea2ImgEditMXD": {
+      "category": "MXD/Krea",
+      "class": "Krea2ImgEditMXD",
+      "display_name": "Krea2 Img Edit MXD",
+      "function": "patch",
+      "input_types": {
+        "optional": {
+          "boost": {
+            "config": {
+              "default": 1.0,
+              "max": 1000.0,
+              "min": 0.0,
+              "round": 0.001,
+              "step": 0.01,
+              "tooltip": "Attention strength for the image. 1.0 = unchanged."
+            },
+            "type": "FLOAT"
+          }
+        },
+        "required": {
+          "image": {
+            "config": {
+              "tooltip": "The image to edit; supplies source_latent."
+            },
+            "type": "IMAGE"
+          },
+          "model": {
+            "type": "MODEL"
+          },
+          "vae": {
+            "config": {
+              "tooltip": "Required. VAE used to encode the reference images."
+            },
+            "type": "VAE"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "model",
+        "source_latent"
+      ],
+      "return_types": [
+        "MODEL",
+        "LATENT"
+      ]
+    },
+    "Krea2ImgPromptMXD": {
+      "category": "MXD/Krea",
+      "class": "Krea2ImgPromptMXD",
+      "display_name": "Krea2 Img Edit Prompt MXD",
+      "function": "encode",
+      "input_types": {
+        "required": {
+          "clip": {
+            "type": "CLIP"
+          },
+          "image": {
+            "config": {
+              "tooltip": "Connect the same image as the single-image edit node."
+            },
+            "type": "IMAGE"
+          },
+          "prompt": {
+            "config": {
+              "default": "",
+              "multiline": true
+            },
+            "type": "STRING"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": null,
+      "return_types": [
+        "CONDITIONING"
+      ]
+    },
+    "Krea2TwoImgEditMXD": {
+      "category": "MXD/Krea",
+      "class": "Krea2TwoImgEditMXD",
+      "display_name": "Krea2 2 Img Edit MXD",
+      "function": "patch",
+      "input_types": {
+        "optional": {
+          "img_base_boost": {
+            "config": {
+              "default": 1.0,
+              "max": 1000.0,
+              "min": 0.0,
+              "round": 0.001,
+              "step": 0.01,
+              "tooltip": "Attention strength for the base image. 1.0 = unchanged."
+            },
+            "type": "FLOAT"
+          },
+          "img_ref_boost": {
+            "config": {
+              "default": 2.0,
+              "max": 1000.0,
+              "min": 0.0,
+              "round": 0.001,
+              "step": 0.01,
+              "tooltip": "Attention strength for the reference image. 1.0 = unchanged."
+            },
+            "type": "FLOAT"
+          }
+        },
+        "required": {
+          "img_base": {
+            "config": {
+              "tooltip": "Image to edit. Guides layout and framing; supplies source_latent."
+            },
+            "type": "IMAGE"
+          },
+          "img_ref": {
+            "config": {
+              "tooltip": "Appearance reference with freer placement than the base image."
+            },
+            "type": "IMAGE"
+          },
+          "model": {
+            "type": "MODEL"
+          },
+          "vae": {
+            "config": {
+              "tooltip": "Required. VAE used to encode the reference images."
+            },
+            "type": "VAE"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "model",
+        "source_latent"
+      ],
+      "return_types": [
+        "MODEL",
+        "LATENT"
+      ]
+    },
+    "Krea2TwoImgPromptMXD": {
+      "category": "MXD/Krea",
+      "class": "Krea2TwoImgPromptMXD",
+      "display_name": "Krea2 2 Img Edit Prompt MXD",
+      "function": "encode",
+      "input_types": {
+        "required": {
+          "clip": {
+            "type": "CLIP"
+          },
+          "img_base": {
+            "config": {
+              "tooltip": "The base image, or Image 1 when using the advanced editor."
+            },
+            "type": "IMAGE"
+          },
+          "img_ref": {
+            "config": {
+              "tooltip": "The reference image, or Image 2 when using the advanced editor."
+            },
+            "type": "IMAGE"
+          },
+          "prompt": {
+            "config": {
+              "default": "",
+              "multiline": true
+            },
+            "type": "STRING"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": null,
+      "return_types": [
+        "CONDITIONING"
       ]
     },
     "KreaLayerVarianceMXD": {
@@ -1346,6 +1812,36 @@
         "STRING"
       ]
     },
+    "Load GIF MXD": {
+      "category": "Maxed Out/GIF",
+      "class": "LoadGifMXD",
+      "display_name": "Load GIF MXD",
+      "function": "load",
+      "input_types": {
+        "required": {
+          "gif": {
+            "config": {
+              "animated_image_upload": true,
+              "default": "<dynamic-combo-default>",
+              "image_upload": true
+            },
+            "type": {
+              "combo": "dynamic",
+              "dynamic": true
+            }
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "gif",
+        "images"
+      ],
+      "return_types": [
+        "MXD_GIF",
+        "IMAGE"
+      ]
+    },
     "Load Image Batch MXD": {
       "category": "MXD/Image",
       "class": "LoadImageBatchMXD",
@@ -1358,7 +1854,7 @@
               "default": "<dynamic-combo-default>"
             },
             "type": {
-              "combo": "nonempty",
+              "combo": "dynamic",
               "dynamic": true
             }
           },
@@ -1401,7 +1897,7 @@
               "default": "<dynamic-combo-default>"
             },
             "type": {
-              "combo": "nonempty",
+              "combo": "dynamic",
               "dynamic": true
             }
           },
@@ -1435,7 +1931,7 @@
         "required": {
           "ckpt_name": {
             "type": {
-              "combo": "nonempty",
+              "combo": "dynamic",
               "dynamic": true
             }
           }
@@ -1458,7 +1954,7 @@
         "required": {
           "image": {
             "type": {
-              "combo": "nonempty",
+              "combo": "dynamic",
               "dynamic": true
             }
           },
@@ -1511,7 +2007,7 @@
               "image_upload": true
             },
             "type": {
-              "combo": "nonempty",
+              "combo": "dynamic",
               "dynamic": true
             }
           }
@@ -1540,7 +2036,7 @@
         "required": {
           "latent": {
             "type": {
-              "combo": "empty",
+              "combo": "dynamic",
               "dynamic": true
             }
           },
@@ -1599,7 +2095,7 @@
         "required": {
           "latent": {
             "type": {
-              "combo": "empty",
+              "combo": "dynamic",
               "dynamic": true
             }
           },
@@ -1636,7 +2132,7 @@
         "required": {
           "latent": {
             "type": {
-              "combo": "empty",
+              "combo": "dynamic",
               "dynamic": true
             }
           },
@@ -1695,7 +2191,7 @@
         "required": {
           "subfolder": {
             "type": {
-              "combo": "nonempty",
+              "combo": "dynamic",
               "dynamic": true
             }
           }
@@ -1738,7 +2234,7 @@
         "required": {
           "subfolder": {
             "type": {
-              "combo": "nonempty",
+              "combo": "dynamic",
               "dynamic": true
             }
           }
@@ -1761,7 +2257,7 @@
         "required": {
           "subfolder": {
             "type": {
-              "combo": "nonempty",
+              "combo": "dynamic",
               "dynamic": true
             }
           }
@@ -1853,7 +2349,7 @@
           },
           "video": {
             "type": {
-              "combo": "nonempty",
+              "combo": "dynamic",
               "dynamic": true
             }
           }
@@ -2349,6 +2845,32 @@
       "return_types": [
         "['Square (1:1) 1024x1024', 'Standard (4:3) 1152x896', 'Landscape (3:2) 1216x832', 'Widescreen (16:9) 1344x768', 'Ultra-Wide (21:9) 1536x640']",
         "BOOLEAN"
+      ]
+    },
+    "Save GIF MXD": {
+      "category": "Maxed Out/GIF",
+      "class": "SaveGifMXD",
+      "display_name": "Save GIF MXD",
+      "function": "save",
+      "input_types": {
+        "required": {
+          "filename_prefix": {
+            "config": {
+              "default": "MaxedOut/GIF"
+            },
+            "type": "STRING"
+          },
+          "gif": {
+            "type": "MXD_GIF"
+          }
+        }
+      },
+      "output_node": true,
+      "return_names": [
+        "gif"
+      ],
+      "return_types": [
+        "MXD_GIF"
       ]
     },
     "Save Image MXD": {

@@ -4,10 +4,12 @@ Adapted from ComfyUI-Krea2Edit by Conrad Locke:
 https://github.com/lbouaraba/comfyui-krea2edit
 
 Upstream revision: 86f886dac23013d88996e3a2e99093ba44d322fb
+V2 reference placement: 13ef60f20828949becada815d3cbc371eb5ccaab
 Upstream license: Apache License 2.0 (see THIRD_PARTY_LICENSES.md).
 
 This file was modified for ComfyUI-MaxedOut by extracting only the image-fit
-and diffusion-forward helpers needed by the MXD nodes. The upstream public
+and diffusion-forward helpers needed by the MXD nodes, with per-image V2
+reference placement. The upstream public
 nodes, workflow, and packaging code are intentionally not duplicated.
 """
 
@@ -19,6 +21,30 @@ from einops import rearrange
 
 import comfy.ldm.common_dit
 from comfy.ldm.flux.layers import timestep_embedding
+
+
+REF_POSITIONS = ["aligned (trained)", "beside (right of target)", "bag of features"]
+
+
+def _place_refs(reference_ids, modes, height, width):
+    """Place references in RoPE space, preserving their frame indices."""
+    placed = []
+    next_column = float(width)
+    for ids, mode in zip(reference_ids, modes):
+        if mode == REF_POSITIONS[0]:
+            placed.append(ids)
+            continue
+        ids = ids.clone()
+        if mode == REF_POSITIONS[1]:
+            ids[..., 2] = ids[..., 2] - ids[..., 2].min() + next_column
+            next_column = float(ids[..., 2].max()) + 1.0
+        elif mode == REF_POSITIONS[2]:
+            ids[..., 1] = (height - 1) / 2.0
+            ids[..., 2] = (width - 1) / 2.0
+        else:
+            raise ValueError(f"Unknown reference placement: {mode!r}")
+        placed.append(ids)
+    return placed
 
 
 def _imgids(bs, frame, height, width, device):
@@ -131,6 +157,26 @@ def fit_encode_image(image, vae, height, width, cache, key, fit_mode="crop"):
     return latent
 
 
+def fit_boost_mask(mask, image, height, width):
+    """Apply the same crop as fit_encode_image before its token-grid resize."""
+    if mask is None:
+        return None
+    if mask.ndim == 2:
+        mask = mask.unsqueeze(0)
+    ih, iw = image.shape[1:3]
+    mask = F.interpolate(mask[:1, None].float(), size=(ih, iw), mode="nearest")
+    scale = min(height / ih, width / iw)
+    if ih * scale >= height * 0.92 and iw * scale >= width * 0.92:
+        fill = max(height / ih, width / iw)
+        ch, cw = min(ih, round(height / fill)), min(iw, round(width / fill))
+    else:
+        nh = min(max(16, int(ih * scale) // 16 * 16), max(16, height // 16 * 16))
+        nw = min(max(16, int(iw * scale) // 16 * 16), max(16, width // 16 * 16))
+        ch, cw = min(ih, max(1, round(nh / scale))), min(iw, max(1, round(nw / scale)))
+    top, left = (ih - ch) // 2, (iw - cw) // 2
+    return mask[:, 0, top:top + ch, left:left + cw]
+
+
 def _ref_attn_bias(
     boosts,
     boost_masks,
@@ -187,6 +233,7 @@ def krea2_edit_forward(
     image_boost_masks=None,
     ref_native=False,
     pos_mode="anchor",
+    image_positions=None,
 ):
     """Run Krea 2 with clean source blocks prepended to the noisy target."""
     patch = model.patch
@@ -286,6 +333,12 @@ def krea2_edit_forward(
             )
             for index, (source_h, source_w) in enumerate(source_grids)
         ]
+    reference_ids = _place_refs(
+        reference_ids,
+        image_positions or [REF_POSITIONS[0]] * len(reference_ids),
+        grid_h,
+        grid_w,
+    )
     positions = torch.cat(
         [
             torch.zeros(

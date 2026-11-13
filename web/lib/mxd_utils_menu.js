@@ -183,6 +183,20 @@ function normalizeMenuCallbackValue(value) {
   return value;
 }
 
+function positionChooserAfterLayout(menuEl, event) {
+  if (!menuEl?.isConnected || !Number.isFinite(event?.clientY)) return;
+
+  // ContextMenu positions the full, flat file list before we collapse folders.
+  // Re-anchor the finished tree now, rather than waiting for the first keystroke
+  // to make ComfyUI's filter correct the stale (often far too high) position.
+  const rect = menuEl.getBoundingClientRect();
+  const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
+  const top = Math.max(10, Math.min(event.clientY - 10, viewportHeight - rect.height - 10));
+  // Account for ContextMenu's zoom transform, including its transform origin.
+  const transformOffset = rect.top - (parseFloat(menuEl.style.top) || 0);
+  menuEl.style.top = `${top - transformOffset}px`;
+}
+
 /** Generic tree/search-enabled item chooser context menu, used for LoRAs, checkpoints, and
  * the smart UNET/CLIP model lists. */
 export async function showModelChooser(event, callback, parentMenu, items, title = "Choose an Item") {
@@ -203,6 +217,7 @@ export async function showModelChooser(event, callback, parentMenu, items, title
     const menuEl = getContextMenuRootElement(menu);
     decorateChooserAsTree(menuEl);
     attachSmartChooserFilter(menuEl);
+    positionChooserAfterLayout(menuEl, event);
   });
 }
 

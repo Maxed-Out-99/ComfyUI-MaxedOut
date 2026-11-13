@@ -71,8 +71,26 @@ preview actually needs it.
 | `Flux Empty Latent Image MXD` / `ZIT Empty Latent Image MXD` / `SDXL Empty Latent Image MXD` | Resolution presets plus vertical toggle to avoid retyping the same sizes repeatedly. |
 | `Save Image MXD` | Simple save modes (`Save + Preview`, `Save Only`, `Preview Only`). |
 | `WAN 2.2 MXD` nodes | Helpers for WAN 2.2 latent/video prep, frame tools, and I2V-focused workflows. |
-| `Krea 2 Edit MXD` / `Krea2 Edit MXD` | Krea 2 source-preservation and grounded prompt encoding. No separate custom-node pack is required; model weights are still downloaded separately. |
+| `Krea2 Img Edit MXD` / `Krea2 Img Edit Adv MXD` | Single-image editing with one boost. Adv adds a Base/Ref choice and a boost mask. |
+| `Krea2 2 Img Edit MXD` / `Krea2 2 Img Edit Adv MXD` | Two-image editing. Simple uses fixed Base/Ref roles; Adv allows independent roles, boosts, and boost masks. |
+| `Krea2 Img Edit Prompt MXD` / `Krea2 2 Img Edit Prompt MXD` | Grounded prompt encoding with one image or Base/Ref images, matching the edit nodes. Both use a fixed 768px grounding limit. |
+| `Krea 2 Edit MXD` | The original model patch node is retained for published workflows. The separate grounded prompt encoder is named `Krea2 Edit Prompt MXD`. No separate custom-node pack is required; download model weights separately. |
 | Prompt spellcheck | Right-click a misspelled word in any prompt box for suggestions. Works offline, no node to add. |
+
+Krea image editors output a model and `source_latent`; prompt encoding, sampling,
+and VAE decoding remain separate. `source_latent` always comes from the first
+image (the base in the simple two-image editor). Advanced Base/Ref choices affect
+reference layout influence, not which image supplies that latent. To put two
+characters into a new scene, use the two-image Adv editor, set both images to
+Ref, and describe the new scene in the prompt. Boost masks restrict attention
+boosts to white areas; they are not inpainting masks.
+
+The original `Krea2EditModelPatchMXD` key retains its published inputs, widget
+order, defaults, and aligned placement for both images so existing V1.2 workflows
+can load unchanged. The new editors also accept V1.2 and V2 edit LoRAs; the simple
+two-image editor uses freer placement for its Ref input. The prompt encoder keeps its class key and image/prompt inputs. Its displayed
+title is `Krea2 Edit Prompt MXD`, and its legacy grounding control is retained for existing workflows. The new
+one/two-image prompt nodes use a fixed 768px limit; this does not set output size.
 
 ## Companion Packs
 
@@ -118,3 +136,11 @@ and license details are recorded in
 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) and alongside vendored code.
 
 This pack has no pip dependencies — everything it needs ships with ComfyUI.
+
+### Get / Set connections
+
+Maxed Out includes compatible `GetNode` / `SetNode` frontend nodes under
+**MXD/Utilities**. They connect parts of a graph by a shared name. If KJNodes'
+Set/Get extension is enabled, Maxed Out uses that provider and registers no
+second copy, menus or settings. Existing workflows use the same node keys
+with either pack. Refresh the browser after adding or removing a provider.
