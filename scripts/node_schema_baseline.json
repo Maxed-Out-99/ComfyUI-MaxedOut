@@ -1,5 +1,5 @@
 {
-  "node_count": 80,
+  "node_count": 81,
   "nodes": {
     "BboxDetectorCombinedBatchMXD": {
       "category": "MXD/Detector",
@@ -3230,6 +3230,50 @@
       "output_node": true,
       "return_names": [],
       "return_types": []
+    },
+    "ScaleImageSizeMXD": {
+      "category": "MXD/Latent",
+      "class": "ScaleImageSizeMXD",
+      "display_name": "Scale Image Size MXD",
+      "function": "calculate",
+      "input_types": {
+        "optional": {
+          "multiple": {
+            "config": {
+              "advanced": true,
+              "default": 16,
+              "max": 256,
+              "min": 1,
+              "tooltip": "Round width and height to the nearest multiple. Rounding can slightly change the aspect ratio and pixel count."
+            },
+            "type": "INT"
+          }
+        },
+        "required": {
+          "image": {
+            "type": "IMAGE"
+          },
+          "megapixels": {
+            "config": {
+              "default": 1.0,
+              "max": 16.0,
+              "min": 0.01,
+              "step": 0.01,
+              "tooltip": "Target area. 1.0 MP corresponds to 1024 × 1024 pixels."
+            },
+            "type": "FLOAT"
+          }
+        }
+      },
+      "output_node": false,
+      "return_names": [
+        "width",
+        "height"
+      ],
+      "return_types": [
+        "INT",
+        "INT"
+      ]
     },
     "Sdxl Empty Latent Image": {
       "category": "MXD/Latent",

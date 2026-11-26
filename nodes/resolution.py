@@ -7,6 +7,7 @@ Registered nodes:
   FluxResolutionMatcher                          Flux Resolution Matcher MXD
   SDXLResolutionMatcher                          SDXL Resolution Matcher MXD
   ResolutionSelectorMXD                          Resolution Selector MXD
+  ScaleImageSizeMXD                              Scale Image Size MXD
 """
 from __future__ import annotations
 import math, comfy, comfy.utils, torch
@@ -378,6 +379,39 @@ class ResolutionSelectorMXD:
         )
 ########################################################################################################################
 
+class ScaleImageSizeMXD:
+    DESCRIPTION = "Calculate width and height for a megapixel target from the input image's aspect ratio. Reads the image dimensions only."
+    CATEGORY = "MXD/Latent"
+    FUNCTION = "calculate"
+    RETURN_TYPES = ("INT", "INT")
+    RETURN_NAMES = ("width", "height")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "megapixels": ("FLOAT", {
+                    "default": 1.0, "min": 0.01, "max": 16.0, "step": 0.01,
+                    "tooltip": "Target area. 1.0 MP corresponds to 1024 × 1024 pixels.",
+                }),
+            },
+            "optional": {
+                "multiple": ("INT", {
+                    "default": 16, "min": 1, "max": 256, "advanced": True,
+                    "tooltip": "Round width and height to the nearest multiple. Rounding can slightly change the aspect ratio and pixel count.",
+                }),
+            },
+        }
+
+    def calculate(self, image, megapixels, multiple=16):
+        _, height, width, _ = image.shape
+        scale = math.sqrt(megapixels * 1024 * 1024 / (width * height))
+        scaled_width = max(1, round(width * scale / multiple)) * multiple
+        scaled_height = max(1, round(height * scale / multiple)) * multiple
+        return (scaled_width, scaled_height)
+
+
 NODE_CLASS_MAPPINGS = {
     "DownscaleImageToTotalPixelsMXD": DownscaleImageToTotalPixelsMXD,
     "Image Scale To Total Pixels (SDXL Safe)": SDXLImageScaleToTotalPixelsSafe,
@@ -385,6 +419,7 @@ NODE_CLASS_MAPPINGS = {
     "FluxResolutionMatcher": FluxResolutionMatcher,
     "SDXLResolutionMatcher": SDXLResolutionMatcher,
     "ResolutionSelectorMXD": ResolutionSelectorMXD,
+    "ScaleImageSizeMXD": ScaleImageSizeMXD,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -394,4 +429,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "FluxResolutionMatcher": "Flux Resolution Matcher MXD",
     "SDXLResolutionMatcher": "SDXL Resolution Matcher MXD",
     "ResolutionSelectorMXD": "Resolution Selector MXD",
+    "ScaleImageSizeMXD": "Scale Image Size MXD",
 }
